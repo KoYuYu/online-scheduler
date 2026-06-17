@@ -92,7 +92,15 @@ export async function POST(request: Request) {
     }
 
     const booking = await store.createBooking(input);
-    const email = await sendBookingNotification(booking);
+
+    let email: { sent: boolean; reason?: string } = { sent: false, reason: "unknown" };
+    try {
+      email = await sendBookingNotification(booking);
+    } catch (emailError) {
+      console.error("[bookings] sendBookingNotification failed:", emailError);
+      email = { sent: false, reason: "email_error" };
+    }
+
     return NextResponse.json({
       booking: {
         id: booking.id,
@@ -106,6 +114,9 @@ export async function POST(request: Request) {
     const pdfMessage = pdfAttachmentErrorMessage(error);
     if (pdfMessage) {
       return NextResponse.json({ error: pdfMessage }, { status: 400 });
+    }
+    if (!(error instanceof Error && error.message === "BOOKING_CONFLICT")) {
+      console.error("[bookings] POST failed:", error);
     }
     const message = error instanceof Error && error.message === "BOOKING_CONFLICT" ? "這個時段剛剛已被預約。" : "預約失敗。";
     return NextResponse.json({ error: message }, { status: 409 });

@@ -12,20 +12,30 @@ export async function DELETE(request: NextRequest, context: Params) {
   if (!getAdminSession(request)) {
     return NextResponse.json({ error: "未登入或權限不足。" }, { status: 401 });
   }
-  const { id } = await context.params;
-  const deleted = await getStore().deleteBooking(id);
-  return NextResponse.json({ deleted });
+  try {
+    const { id } = await context.params;
+    const deleted = await getStore().deleteBooking(id);
+    return NextResponse.json({ deleted });
+  } catch (error) {
+    console.error("[admin/bookings/:id] DELETE failed:", error);
+    return NextResponse.json({ error: "無法刪除預約。" }, { status: 500 });
+  }
 }
 
 export async function PATCH(request: NextRequest, context: Params) {
   if (!getAdminSession(request)) {
     return NextResponse.json({ error: "未登入或權限不足。" }, { status: 401 });
   }
-  const { id } = await context.params;
-  const body = await request.json();
-  const booking = await getStore().updateBooking(id, body);
-  if (!booking) {
-    return NextResponse.json({ error: "找不到資料。" }, { status: 404 });
+  try {
+    const { id } = await context.params;
+    const body = await request.json();
+    const booking = await getStore().updateBooking(id, body);
+    if (!booking) {
+      return NextResponse.json({ error: "找不到資料。" }, { status: 404 });
+    }
+    return NextResponse.json({ booking });
+  } catch (error) {
+    console.error("[admin/bookings/:id] PATCH failed:", error);
+    return NextResponse.json({ error: "無法更新預約。" }, { status: 500 });
   }
-  return NextResponse.json({ booking });
 }
