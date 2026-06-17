@@ -101,6 +101,10 @@ async function writeData(data: JsonData): Promise<void> {
 }
 
 export class JsonStore {
+  async healthCheck(): Promise<void> {
+    await readData();
+  }
+
   async ensureDefaultAvailability(): Promise<void> {
     const data = await readData();
     const hasOldDefaults = data.availabilityRules.some((rule) => /^default-[1-5]-9-17$/.test(rule.id));

@@ -64,7 +64,17 @@ export class PostgresStore {
   private pool: Pool;
 
   constructor(connectionString: string) {
-    this.pool = new Pool({ connectionString });
+    this.pool = new Pool({
+      connectionString,
+      connectionTimeoutMillis: 10000,
+    });
+    this.pool.on("error", (error) => {
+      console.error("Unexpected idle Postgres client error.", error);
+    });
+  }
+
+  async healthCheck(): Promise<void> {
+    await this.pool.query("SELECT 1");
   }
 
   async ensureDefaultAvailability(): Promise<void> {

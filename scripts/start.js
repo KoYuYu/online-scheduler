@@ -10,19 +10,48 @@ const args = fs.existsSync(standaloneServer)
   ? [standaloneServer]
   : ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", port];
 
-const child = spawn(process.execPath, args, {
-  stdio: "inherit",
-  env: {
-    ...process.env,
-    PORT: port,
-    HOSTNAME: process.env.HOSTNAME || "0.0.0.0",
-    LOCAL_DATA_PATH: localDataPath,
-  },
-});
-
-child.on("exit", (code, signal) => {
-  if (signal) {
-    process.kill(process.pid, signal);
+async function verifyDatabase() {
+  if (!process.env.DATABASE_URL) {
+    console.warn("DATABASE_URL is not set; using local JSON storage fallback.");
+    return;
   }
-  process.exit(code || 0);
+
+  const { Pool } = require("pg");
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    connectionTimeoutMillis: 10000,
+  });
+
+  try {
+    await pool.query("SELECT 1");
+    console.log("Postgres connection verified.");
+  } finally {
+    await pool.end();
+  }
+}
+
+async function main() {
+  await verifyDatabase();
+
+  const child = spawn(process.execPath, args, {
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      PORT: port,
+      HOSTNAME: process.env.HOSTNAME || "0.0.0.0",
+      LOCAL_DATA_PATH: localDataPath,
+    },
+  });
+
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+    }
+    process.exit(code || 0);
+  });
+}
+
+main().catch((error) => {
+  console.error("Startup failed.", error);
+  process.exit(1);
 });
