@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
     if (pdfMessage) {
       return NextResponse.json({ error: pdfMessage }, { status: 400 });
     }
+    if (!(error instanceof Error && error.message === "BOOKING_CONFLICT")) {
+      console.error("[admin/bookings] POST failed:", error);
+    }
     const message = error instanceof Error && error.message === "BOOKING_CONFLICT" ? "這個時段與其他預約衝突。" : "無法建立預約。";
     return NextResponse.json({ error: message }, { status: 409 });
   }

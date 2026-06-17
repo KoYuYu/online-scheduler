@@ -64,7 +64,26 @@ export class PostgresStore {
   private pool: Pool;
 
   constructor(connectionString: string) {
+    try {
+      const url = new URL(connectionString);
+      if (url.protocol !== "postgres:" && url.protocol !== "postgresql:") {
+        throw new Error(`Unsupported protocol: ${url.protocol}`);
+      }
+    } catch (error) {
+      throw new Error(
+        `Invalid DATABASE_URL format: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     this.pool = new Pool({ connectionString });
+  }
+
+  async testConnection(): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("SELECT 1");
+    } finally {
+      client.release();
+    }
   }
 
   async ensureDefaultAvailability(): Promise<void> {
