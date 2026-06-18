@@ -1,4 +1,3 @@
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -33,22 +32,17 @@ async function verifyDatabase() {
 async function main() {
   await verifyDatabase();
 
-  const child = spawn(process.execPath, args, {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      PORT: port,
-      HOSTNAME: process.env.HOSTNAME || "0.0.0.0",
-      LOCAL_DATA_PATH: localDataPath,
-    },
-  });
+  process.env.PORT = port;
+  process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
+  process.env.LOCAL_DATA_PATH = localDataPath;
 
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-    }
-    process.exit(code || 0);
-  });
+  if (fs.existsSync(standaloneServer)) {
+    require(standaloneServer);
+    return;
+  }
+
+  process.argv = [process.execPath, ...args];
+  require(path.join(process.cwd(), args[0]));
 }
 
 main().catch((error) => {
