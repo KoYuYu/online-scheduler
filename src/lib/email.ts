@@ -1,6 +1,28 @@
+import { resolve4 } from "node:dns/promises";
+import { isIP } from "node:net";
 import nodemailer from "nodemailer";
 import type { Booking } from "@/lib/types";
 import { formatEtTimeLabel } from "@/lib/time";
+
+async function resolveSmtpConnectionHost(host: string): Promise<string> {
+  if (process.env.SMTP_FORCE_IPV4 === "false" || isIP(host)) {
+    return host;
+  }
+
+  try {
+    const [ipv4Address] = await resolve4(host);
+    if (ipv4Address) {
+      return ipv4Address;
+    }
+  } catch (error) {
+    console.warn("SMTP IPv4 解析失敗，將使用原始主機名稱。", {
+      host,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return host;
+}
 
 export async function sendBookingNotification(booking: Booking): Promise<{ sent: boolean; reason?: string }> {
   const to = process.env.NOTIFY_TO_EMAIL || "jasonko12033@gmail.com";
@@ -16,14 +38,16 @@ export async function sendBookingNotification(booking: Booking): Promise<{ sent:
     return { sent: false, reason: "smtp_not_configured" };
   }
 
+  const connectionHost = await resolveSmtpConnectionHost(host);
   const transporter = nodemailer.createTransport({
-    host,
+    host: connectionHost,
     port: Number(process.env.SMTP_PORT || 465),
     secure: process.env.SMTP_SECURE !== "false",
     auth: { user, pass },
     connectionTimeout: 8_000,
     greetingTimeout: 8_000,
     socketTimeout: 20_000,
+    tls: connectionHost === host ? undefined : { servername: host },
   });
 
   await transporter.sendMail({
