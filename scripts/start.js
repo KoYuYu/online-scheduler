@@ -37,13 +37,28 @@ async function main() {
   process.env.LOCAL_DATA_PATH = localDataPath;
 
   if (fs.existsSync(standaloneServer)) {
-    require(standaloneServer);
+    try {
+      require(standaloneServer);
+    } catch (error) {
+      console.error("Failed to load standalone server.", error);
+      process.exit(1);
+    }
     return;
   }
 
   process.argv = [process.execPath, ...args];
   require(path.join(process.cwd(), args[0]));
 }
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+  process.exit(1);
+});
 
 main().catch((error) => {
   console.error("Startup failed.", error);
