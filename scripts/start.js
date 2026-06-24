@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { spawn } = require("node:child_process");
 
 const port = process.env.PORT || "3000";
 const localDataPath = process.env.LOCAL_DATA_PATH || path.join(os.tmpdir(), "online-scheduler", "scheduler.json");
@@ -29,25 +30,51 @@ async function verifyDatabase() {
   }
 }
 
+function spawnServer(scriptPath, env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath], {
+      stdio: "inherit",
+      env,
+    });
+
+    child.on("error", (error) => {
+      reject(new Error(`Failed to spawn server process: ${error.message}`));
+    });
+
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        process.kill(process.pid, signal);
+      } else {
+        process.exit(code ?? 1);
+      }
+    });
+
+    // Propagate termination signals to the child process.
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      process.on(sig, () => child.kill(sig));
+    }
+
+    // Resolve once the child is running so main() can return while the
+    // child process keeps the event loop alive.
+    resolve();
+  });
+}
+
 async function main() {
   await verifyDatabase();
 
-  process.env.PORT = port;
-  process.env.HOSTNAME = process.env.HOSTNAME || "0.0.0.0";
-  process.env.LOCAL_DATA_PATH = localDataPath;
+  const env = {
+    ...process.env,
+    PORT: port,
+    HOSTNAME: process.env.HOSTNAME || "0.0.0.0",
+    LOCAL_DATA_PATH: localDataPath,
+  };
 
-  if (fs.existsSync(standaloneServer)) {
-    try {
-      require(standaloneServer);
-    } catch (error) {
-      console.error("Failed to load standalone server.", error);
-      process.exit(1);
-    }
-    return;
-  }
+  const serverScript = fs.existsSync(standaloneServer)
+    ? standaloneServer
+    : path.join(process.cwd(), args[0]);
 
-  process.argv = [process.execPath, ...args];
-  require(path.join(process.cwd(), args[0]));
+  await spawnServer(serverScript, env);
 }
 
 process.on("uncaughtException", (error) => {
