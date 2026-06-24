@@ -66,7 +66,9 @@ async function main() {
   const env = {
     ...process.env,
     PORT: port,
-    HOSTNAME: process.env.HOSTNAME || "0.0.0.0",
+    // Railway sets HOSTNAME to the container name. Bind Next.js to every
+    // container interface so Railway's public proxy can reach the server.
+    HOSTNAME: "0.0.0.0",
     LOCAL_DATA_PATH: localDataPath,
   };
 
