@@ -32,19 +32,27 @@ async function verifyDatabase() {
 
 function spawnServer(scriptPath, env) {
   return new Promise((resolve, reject) => {
+    console.log(`[start] Spawning server: ${process.execPath} ${scriptPath}`);
+    console.log(`[start] Environment passed to child: PORT=${env.PORT}, HOSTNAME=${env.HOSTNAME}, LOCAL_DATA_PATH=${env.LOCAL_DATA_PATH}, DATABASE_URL=${env.DATABASE_URL ? "(set)" : "(not set)"}`);
+
     const child = spawn(process.execPath, [scriptPath], {
       stdio: "inherit",
       env,
     });
 
+    console.log(`[start] Child process spawned with PID ${child.pid}`);
+
     child.on("error", (error) => {
+      console.error(`[start] Child process error: ${error.message}`);
       reject(new Error(`Failed to spawn server process: ${error.message}`));
     });
 
     child.on("exit", (code, signal) => {
       if (signal) {
+        console.error(`[start] Child process killed by signal: ${signal}`);
         process.kill(process.pid, signal);
       } else {
+        console.error(`[start] Child process exited with code: ${code}`);
         process.exit(code ?? 1);
       }
     });
@@ -70,9 +78,15 @@ async function main() {
     LOCAL_DATA_PATH: localDataPath,
   };
 
-  const serverScript = fs.existsSync(standaloneServer)
+  const standaloneExists = fs.existsSync(standaloneServer);
+  console.log(`[start] Standalone server path: ${standaloneServer}`);
+  console.log(`[start] Standalone server exists: ${standaloneExists}`);
+
+  const serverScript = standaloneExists
     ? standaloneServer
     : path.join(process.cwd(), args[0]);
+
+  console.log(`[start] Resolved server script: ${serverScript}`);
 
   await spawnServer(serverScript, env);
 }
