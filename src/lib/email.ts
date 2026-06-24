@@ -134,7 +134,7 @@ export function queueBookingNotification(booking: Booking): void {
   void sendBookingNotification(booking)
     .then((result) => {
       if (result.sent) {
-        console.log("預約通知信已交由 SMTP 寄送。", { bookingId: booking.id });
+        console.log("預約通知信已送出。", { bookingId: booking.id });
         return;
       }
 
