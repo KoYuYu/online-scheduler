@@ -2,14 +2,19 @@ import { NextResponse } from "next/server";
 import { buildAvailableSlots, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
+import { isSupportedZoomTimeZone } from "@/lib/types";
 import { parseZoomInvite } from "@/lib/zoom-parser";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { text?: string };
-    const preview = parseZoomInvite(body.text || "");
+    const body = (await request.json()) as { text?: string; sourceTimeZone?: string };
+    const sourceTimeZone = body.sourceTimeZone?.trim();
+    if (sourceTimeZone && !isSupportedZoomTimeZone(sourceTimeZone)) {
+      throw new Error("不支援的會議時區。");
+    }
+    const preview = parseZoomInvite(body.text || "", undefined, sourceTimeZone);
     const parsedYmd = formatYmd(new Date(preview.startAtUtc));
     const { fromYmd, toYmd } = normalizeRange(parsedYmd, addDaysToYmd(parsedYmd, 7));
     const store = getStore();

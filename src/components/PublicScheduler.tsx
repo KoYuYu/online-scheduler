@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { addDaysToYmd, EASTERN_TIME_ZONE, formatYmd, ymdToWeekday } from "@/lib/time";
-import type { ParsedZoomInvite, PublicSlot } from "@/lib/types";
+import { ZOOM_TIME_ZONE_OPTIONS, type ParsedZoomInvite, type PublicSlot } from "@/lib/types";
 
 type ParseResponse = {
   preview?: ParsedZoomInvite;
@@ -61,6 +61,7 @@ export function PublicScheduler() {
   const [preview, setPreview] = useState<ParsedZoomInvite | null>(null);
   const [suggestions, setSuggestions] = useState<PublicSlot[]>([]);
   const [previewAvailable, setPreviewAvailable] = useState<boolean | null>(null);
+  const [selectedSourceTimeZone, setSelectedSourceTimeZone] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<BookingMessage | null>(null);
   const slotsRequestId = useRef(0);
@@ -133,17 +134,14 @@ export function PublicScheduler() {
   const availableSlotCount = useMemo(() => slots.filter((slot) => slot.status !== "blocked").length, [slots]);
   const blockedSlotCount = slots.length - availableSlotCount;
 
-  async function openZoomConfirmation() {
+  async function requestZoomPreview(sourceTimeZone?: string) {
     setLoading(true);
     setMessage(null);
-    setPreview(null);
-    setSuggestions([]);
-    setPreviewAvailable(null);
     try {
       const response = await fetch("/api/zoom-invites/parse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: zoomText }),
+        body: JSON.stringify({ text: zoomText, sourceTimeZone }),
       });
       const data = (await response.json()) as ParseResponse;
       if (!response.ok || !data.preview) {
@@ -157,6 +155,19 @@ export function PublicScheduler() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openZoomConfirmation() {
+    setPreview(null);
+    setSuggestions([]);
+    setPreviewAvailable(null);
+    setSelectedSourceTimeZone("");
+    await requestZoomPreview();
+  }
+
+  async function confirmSourceTimeZone(sourceTimeZone: string) {
+    setSelectedSourceTimeZone(sourceTimeZone);
+    await requestZoomPreview(sourceTimeZone);
   }
 
   async function createBooking(payload: Record<string, unknown>) {
@@ -182,6 +193,7 @@ export function PublicScheduler() {
       setPreview(null);
       setPreviewAvailable(null);
       setSuggestions([]);
+      setSelectedSourceTimeZone("");
       setZoomText("");
       setBookerName("");
       setZoomJoinUrl("");
@@ -222,13 +234,14 @@ export function PublicScheduler() {
   }
 
   function submitZoom() {
-    if (!preview || !previewAvailable) {
+    if (!preview || !previewAvailable || !preview.timeZoneConfirmed) {
       setMessage({ type: "error", text: "請先確認 Zoom 邀請內容與可預約時間。" });
       return;
     }
     void createBooking({
       source: "zoom",
       rawInviteText: zoomText,
+      sourceTimeZone: selectedSourceTimeZone || undefined,
       ...buildPdfPayload(pdfAttachment),
     });
   }
@@ -281,6 +294,7 @@ export function PublicScheduler() {
     setPreview(null);
     setPreviewAvailable(null);
     setSuggestions([]);
+    setSelectedSourceTimeZone("");
   }
 
   const canGoPreviousWeek = weekOffset > 0;
@@ -508,10 +522,12 @@ export function PublicScheduler() {
             loading={loading}
             message={message}
             preview={preview}
+            selectedSourceTimeZone={selectedSourceTimeZone}
             suggestions={suggestions}
             onCancel={dismissZoomConfirmation}
             onConfirm={submitZoom}
             onPickSuggestion={pickSuggestion}
+            onSourceTimeZoneChange={(timeZone) => void confirmSourceTimeZone(timeZone)}
           />
         ) : null}
       </section>
@@ -712,9 +728,9 @@ function PdfAttachmentField(props: {
 function ZoomPreview({ available, preview }: { available: boolean | null; preview: ParsedZoomInvite }) {
   return (
     <div className="preview-card">
-      <div className={`status-line ${available ? "success" : "warning"}`}>
-        {available ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
-        <strong>{available ? "可預約" : "此時段不可預約"}</strong>
+      <div className={`status-line ${available && preview.timeZoneConfirmed ? "success" : "warning"}`}>
+        {available && preview.timeZoneConfirmed ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
+        <strong>{!preview.timeZoneConfirmed ? "請先確認原始時區" : available ? "可預約" : "此時段不可預約"}</strong>
       </div>
       <div className="preview-row">
         <span>邀請人</span>
@@ -723,6 +739,10 @@ function ZoomPreview({ available, preview }: { available: boolean | null; previe
       <div className="preview-row">
         <span>主題</span>
         <strong>{preview.title}</strong>
+      </div>
+      <div className="preview-row">
+        <span>原始時間</span>
+        <strong>{preview.originalTimeText}</strong>
       </div>
       <div className="preview-row">
         <span>美東時間</span>
@@ -751,12 +771,20 @@ function ZoomConfirmationDialog(props: {
   loading: boolean;
   message: BookingMessage | null;
   preview: ParsedZoomInvite;
+  selectedSourceTimeZone: string;
   suggestions: PublicSlot[];
   onCancel: () => void;
   onConfirm: () => void;
   onPickSuggestion: (slot: PublicSlot) => void;
+  onSourceTimeZoneChange: (timeZone: string) => void;
 }) {
-  const canConfirm = props.available === true;
+  const requiresTimeZoneSelection = props.preview.timeZoneSource !== "invite";
+  const canConfirm = props.available === true && props.preview.timeZoneConfirmed;
+  const dialogTitle = !props.preview.timeZoneConfirmed
+    ? "請確認會議原始時區"
+    : canConfirm
+      ? "確認預約資訊"
+      : "這個時間目前無法預約";
   return (
     <div className="dialog-backdrop" role="presentation" onClick={props.onCancel}>
       <section
@@ -769,7 +797,7 @@ function ZoomConfirmationDialog(props: {
         <div className="dialog-header">
           <div>
             <span className="section-kicker">Zoom 預約</span>
-            <h2 id="zoom-confirmation-title">{canConfirm ? "確認預約資訊" : "這個時間目前無法預約"}</h2>
+            <h2 id="zoom-confirmation-title">{dialogTitle}</h2>
           </div>
           <button aria-label="關閉確認視窗" className="icon-button" type="button" onClick={props.onCancel}>
             <X size={18} />
@@ -777,8 +805,26 @@ function ZoomConfirmationDialog(props: {
         </div>
 
         <ZoomPreview available={props.available} preview={props.preview} />
+        {requiresTimeZoneSelection ? (
+          <label className="field timezone-confirmation">
+            <span>會議原始時區</span>
+            <select
+              disabled={props.loading}
+              value={props.selectedSourceTimeZone}
+              onChange={(event) => props.onSourceTimeZoneChange(event.target.value)}
+            >
+              <option value="">請選擇邀請使用的時區</option>
+              {ZOOM_TIME_ZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <p className="field-help">選擇後系統會重新計算美東時間與可預約狀態。</p>
+          </label>
+        ) : null}
         {props.message ? <div className={`message ${props.message.type}`}>{props.message.text}</div> : null}
-        {!canConfirm && props.suggestions.length ? <Suggestions slots={props.suggestions} onPick={props.onPickSuggestion} /> : null}
+        {!canConfirm && props.preview.timeZoneConfirmed && props.suggestions.length ? <Suggestions slots={props.suggestions} onPick={props.onPickSuggestion} /> : null}
 
         <div className="dialog-actions">
           <button className="ghost-button" disabled={props.loading} type="button" onClick={props.onCancel}>

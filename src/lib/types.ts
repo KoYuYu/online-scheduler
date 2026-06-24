@@ -45,11 +45,25 @@ export type PublicSlot = {
   status?: "available" | "blocked";
 };
 
+export const ZOOM_TIME_ZONE_OPTIONS = [
+  { value: "America/New_York", label: "美東時間（ET）" },
+  { value: "America/Los_Angeles", label: "太平洋時間（PT）" },
+  { value: "America/Chicago", label: "中部時間（CT）" },
+  { value: "America/Denver", label: "山區時間（MT）" },
+  { value: "Asia/Taipei", label: "台北時間" },
+] as const;
+
+export function isSupportedZoomTimeZone(value: string): boolean {
+  return ZOOM_TIME_ZONE_OPTIONS.some((option) => option.value === value);
+}
+
 export type ParsedZoomInvite = {
   invitedByName: string | null;
   title: string;
   originalTimeText: string;
   sourceTimeZone: string;
+  timeZoneConfirmed: boolean;
+  timeZoneSource: "invite" | "user" | "missing";
   startAtUtc: string;
   endAtUtc: string;
   startAtEastern: string;

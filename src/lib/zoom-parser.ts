@@ -29,13 +29,13 @@ function parseInviter(text: string): string | null {
   return english?.[1]?.trim() || null;
 }
 
-function parseTimeZone(value: string): string {
+function parseTimeZone(value: string): { timeZone: string; confirmed: boolean } {
   for (const [pattern, timeZone] of TIMEZONE_KEYWORDS) {
     if (pattern.test(value)) {
-      return timeZone;
+      return { timeZone, confirmed: true };
     }
   }
-  return EASTERN_TIME_ZONE;
+  return { timeZone: EASTERN_TIME_ZONE, confirmed: false };
 }
 
 function parseChineseDateTime(value: string): { year: number; month: number; day: number; hour: number; minute: number } | null {
@@ -81,7 +81,7 @@ function parseJoinUrl(text: string): string | null {
   return urls.find((url) => /zoom\.us\/j\//i.test(url)) || urls.find((url) => /zoom\.us/i.test(url)) || null;
 }
 
-export function parseZoomInvite(rawText: string, slotMinutes = DEFAULT_SLOT_MINUTES): ParsedZoomInvite {
+export function parseZoomInvite(rawText: string, slotMinutes = DEFAULT_SLOT_MINUTES, sourceTimeZoneOverride?: string): ParsedZoomInvite {
   const text = rawText.trim();
   if (!text) {
     throw new Error("請先貼上 Zoom 邀請內容。");
@@ -97,7 +97,10 @@ export function parseZoomInvite(rawText: string, slotMinutes = DEFAULT_SLOT_MINU
     throw new Error("無法解析會議日期與時間。");
   }
 
-  const sourceTimeZone = parseTimeZone(originalTimeText);
+  const detectedTimeZone = parseTimeZone(originalTimeText);
+  const sourceTimeZone = sourceTimeZoneOverride || detectedTimeZone.timeZone;
+  const timeZoneConfirmed = Boolean(sourceTimeZoneOverride) || detectedTimeZone.confirmed;
+  const timeZoneSource = sourceTimeZoneOverride ? "user" : detectedTimeZone.confirmed ? "invite" : "missing";
   const start = zonedTimeToUtc(parsedDateTime, sourceTimeZone);
   const end = addMinutes(start, slotMinutes);
   const startAtUtc = start.toISOString();
@@ -108,6 +111,8 @@ export function parseZoomInvite(rawText: string, slotMinutes = DEFAULT_SLOT_MINU
     title: pickLine(text, ["主题", "主題", "Topic"]) || "Zoom 會議",
     originalTimeText,
     sourceTimeZone,
+    timeZoneConfirmed,
+    timeZoneSource,
     startAtUtc,
     endAtUtc,
     startAtEastern: formatEtDateTimeLabel(startAtUtc),

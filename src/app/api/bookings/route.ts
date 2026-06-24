@@ -4,7 +4,7 @@ import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeR
 import { queueBookingNotification } from "@/lib/email";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
-import type { BookingInput } from "@/lib/types";
+import { isSupportedZoomTimeZone, type BookingInput } from "@/lib/types";
 import { parseZoomInvite } from "@/lib/zoom-parser";
 
 export const runtime = "nodejs";
@@ -23,12 +23,19 @@ function isValidZoomUrl(value: string | null | undefined): value is string {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as Partial<BookingInput> & { rawInviteText?: string };
+    const body = (await request.json()) as Partial<BookingInput> & { rawInviteText?: string; sourceTimeZone?: string };
     const attachment = sanitizePdfAttachment(body);
 
     let input: BookingInput;
     if (body.source === "zoom") {
-      const parsed = parseZoomInvite(body.rawInviteText || "");
+      const sourceTimeZone = body.sourceTimeZone?.trim();
+      if (sourceTimeZone && !isSupportedZoomTimeZone(sourceTimeZone)) {
+        return NextResponse.json({ error: "不支援的會議時區。" }, { status: 400 });
+      }
+      const parsed = parseZoomInvite(body.rawInviteText || "", undefined, sourceTimeZone);
+      if (!parsed.timeZoneConfirmed) {
+        return NextResponse.json({ error: "請先確認 Zoom 邀請的原始時區。" }, { status: 400 });
+      }
       if (!isValidZoomUrl(parsed.zoomJoinUrl)) {
         return NextResponse.json({ error: "Zoom 邀請中找不到有效的 Zoom 連結。" }, { status: 400 });
       }
