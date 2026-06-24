@@ -133,7 +133,7 @@ export function PublicScheduler() {
   const availableSlotCount = useMemo(() => slots.filter((slot) => slot.status !== "blocked").length, [slots]);
   const blockedSlotCount = slots.length - availableSlotCount;
 
-  async function parseZoomInvite() {
+  async function openZoomConfirmation() {
     setLoading(true);
     setMessage(null);
     setPreview(null);
@@ -152,9 +152,6 @@ export function PublicScheduler() {
       setPreview(data.preview);
       setPreviewAvailable(Boolean(data.available));
       setSuggestions(data.available ? [] : data.suggestions || []);
-      if (!data.available) {
-        setMessage({ type: "warning", text: "這個 Zoom 時間不在可預約時段內，請改選下方可用時間。" });
-      }
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "Zoom 解析失敗。" });
     } finally {
@@ -174,6 +171,9 @@ export function PublicScheduler() {
       const data = (await response.json()) as { error?: string; suggestions?: PublicSlot[] };
       if (!response.ok) {
         setSuggestions(data.suggestions || []);
+        if (payload.source === "zoom") {
+          setPreviewAvailable(false);
+        }
         throw new Error(data.error || "預約失敗。");
       }
       setMessage({ type: "success", text: "預約已確認，這段時間已保留。" });
@@ -223,7 +223,7 @@ export function PublicScheduler() {
 
   function submitZoom() {
     if (!preview || !previewAvailable) {
-      setMessage({ type: "error", text: "請先解析 Zoom 邀請，並確認時間可預約。" });
+      setMessage({ type: "error", text: "請先確認 Zoom 邀請內容與可預約時間。" });
       return;
     }
     void createBooking({
@@ -271,9 +271,16 @@ export function PublicScheduler() {
   }
 
   function pickSuggestion(slot: PublicSlot) {
+    dismissZoomConfirmation();
     setMode("calendar");
     setSelectedSlot(slot);
     setMessage(null);
+  }
+
+  function dismissZoomConfirmation() {
+    setPreview(null);
+    setPreviewAvailable(null);
+    setSuggestions([]);
   }
 
   const canGoPreviousWeek = weekOffset > 0;
@@ -478,12 +485,6 @@ export function PublicScheduler() {
                   onChange={(event) => setZoomText(event.target.value)}
                 />
               </label>
-              <button className="ghost-button" disabled={loading || !zoomText.trim()} type="button" onClick={() => void parseZoomInvite()}>
-                <Link size={17} />
-                解析邀請
-              </button>
-              {preview ? <ZoomPreview available={previewAvailable} preview={preview} /> : null}
-              {!previewAvailable && suggestions.length ? <Suggestions slots={suggestions} onPick={pickSuggestion} /> : null}
               <PdfAttachmentField
                 attachment={pdfAttachment}
                 error={pdfError}
@@ -491,15 +492,28 @@ export function PublicScheduler() {
                 onChange={(file) => void handlePdfChange(file)}
                 onRemove={clearPdfAttachment}
               />
-              <button className="primary-button" disabled={loading || !preview || !previewAvailable} type="button" onClick={submitZoom}>
+              <button className="primary-button" disabled={loading || !zoomText.trim()} type="button" onClick={() => void openZoomConfirmation()}>
                 <Send size={17} />
-                確認 Zoom 預約
+                提交 Zoom 預約
               </button>
             </div>
           )}
 
           {message ? <div className={`message ${message.type}`}>{message.text}</div> : null}
         </aside>
+
+        {preview ? (
+          <ZoomConfirmationDialog
+            available={previewAvailable}
+            loading={loading}
+            message={message}
+            preview={preview}
+            suggestions={suggestions}
+            onCancel={dismissZoomConfirmation}
+            onConfirm={submitZoom}
+            onPickSuggestion={pickSuggestion}
+          />
+        ) : null}
       </section>
     </main>
   );
@@ -728,6 +742,56 @@ function ZoomPreview({ available, preview }: { available: boolean | null; previe
         <span>密碼</span>
         <strong>{preview.passcode || "無"}</strong>
       </div>
+    </div>
+  );
+}
+
+function ZoomConfirmationDialog(props: {
+  available: boolean | null;
+  loading: boolean;
+  message: BookingMessage | null;
+  preview: ParsedZoomInvite;
+  suggestions: PublicSlot[];
+  onCancel: () => void;
+  onConfirm: () => void;
+  onPickSuggestion: (slot: PublicSlot) => void;
+}) {
+  const canConfirm = props.available === true;
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={props.onCancel}>
+      <section
+        aria-labelledby="zoom-confirmation-title"
+        aria-modal="true"
+        className="confirmation-dialog"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <span className="section-kicker">Zoom 預約</span>
+            <h2 id="zoom-confirmation-title">{canConfirm ? "確認預約資訊" : "這個時間目前無法預約"}</h2>
+          </div>
+          <button aria-label="關閉確認視窗" className="icon-button" type="button" onClick={props.onCancel}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <ZoomPreview available={props.available} preview={props.preview} />
+        {props.message ? <div className={`message ${props.message.type}`}>{props.message.text}</div> : null}
+        {!canConfirm && props.suggestions.length ? <Suggestions slots={props.suggestions} onPick={props.onPickSuggestion} /> : null}
+
+        <div className="dialog-actions">
+          <button className="ghost-button" disabled={props.loading} type="button" onClick={props.onCancel}>
+            {canConfirm ? "取消" : "關閉"}
+          </button>
+          {canConfirm ? (
+            <button className="primary-button" disabled={props.loading} type="button" onClick={props.onConfirm}>
+              <Check size={17} />
+              確認並預約
+            </button>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 }
