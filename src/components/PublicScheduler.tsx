@@ -315,7 +315,7 @@ export function PublicScheduler() {
         <div className="topbar-actions">
           <span className="window-badge">
             <Clock size={15} />
-            60 分鐘，15 分鐘間隔
+            60 分鐘，每 30 分鐘可選
           </span>
           <a className="ghost-button" href="/admin">
             管理後台

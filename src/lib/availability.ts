@@ -14,7 +14,7 @@ import {
 } from "@/lib/time";
 import type { AvailabilityRule, Booking, PublicSlot } from "@/lib/types";
 
-const SLOT_START_STEP_MINUTES = 15;
+const SLOT_START_STEP_MINUTES = 30;
 
 export function overlaps(startA: string, endA: string, startB: string, endB: string): boolean {
   return new Date(startA).getTime() < new Date(endB).getTime() && new Date(endA).getTime() > new Date(startB).getTime();

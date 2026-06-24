@@ -36,20 +36,14 @@ describe("serializePublicSlots", () => {
     ];
 
     const slots = buildAvailableSlots(rules, [], "2026-06-22", "2026-06-22");
-    expect(slots).toHaveLength(13);
+    expect(slots).toHaveLength(7);
     expect(slots.map((slot) => slot.timeLabel)).toEqual([
       "8:00 PM - 9:00 PM ET",
-      "8:15 PM - 9:15 PM ET",
       "8:30 PM - 9:30 PM ET",
-      "8:45 PM - 9:45 PM ET",
       "9:00 PM - 10:00 PM ET",
-      "9:15 PM - 10:15 PM ET",
       "9:30 PM - 10:30 PM ET",
-      "9:45 PM - 10:45 PM ET",
       "10:00 PM - 11:00 PM ET",
-      "10:15 PM - 11:15 PM ET",
       "10:30 PM - 11:30 PM ET",
-      "10:45 PM - 11:45 PM ET",
       "11:00 PM - 12:00 AM ET",
     ]);
   });
@@ -78,14 +72,14 @@ describe("serializePublicSlots", () => {
 
     const slots = buildAvailableSlots(rules, [], "2026-06-20", "2026-06-20");
     const labels = slots.map((slot) => slot.timeLabel);
-    expect(slots).toHaveLength(26);
+    expect(slots).toHaveLength(14);
     expect(labels).toContain("10:00 AM - 11:00 AM ET");
-    expect(labels).toContain("10:15 AM - 11:15 AM ET");
+    expect(labels).toContain("10:30 AM - 11:30 AM ET");
     expect(labels).toContain("12:00 PM - 1:00 PM ET");
     expect(labels).toContain("7:00 PM - 8:00 PM ET");
-    expect(labels).toContain("10:15 PM - 11:15 PM ET");
+    expect(labels).toContain("10:30 PM - 11:30 PM ET");
     expect(labels).toContain("11:00 PM - 12:00 AM ET");
-    expect(labels).not.toContain("11:15 PM - 12:15 AM ET");
+    expect(labels).not.toContain("11:30 PM - 12:30 AM ET");
   });
 
   it("keeps one-hour slots that do not overlap an off-hour Zoom booking", () => {
@@ -126,17 +120,14 @@ describe("serializePublicSlots", () => {
 
     const labels = buildAvailableSlots(rules, bookings, "2026-06-17", "2026-06-17").map((slot) => slot.timeLabel);
 
-    expect(labels).toContain("9:15 PM - 10:15 PM ET");
+    expect(labels).toContain("9:00 PM - 10:00 PM ET");
     expect(labels).not.toContain("9:30 PM - 10:30 PM ET");
     expect(labels).not.toContain("10:00 PM - 11:00 PM ET");
     expect(labels).not.toContain("11:00 PM - 12:00 AM ET");
     expect(labels).toEqual([
       "8:00 PM - 9:00 PM ET",
-      "8:15 PM - 9:15 PM ET",
       "8:30 PM - 9:30 PM ET",
-      "8:45 PM - 9:45 PM ET",
       "9:00 PM - 10:00 PM ET",
-      "9:15 PM - 10:15 PM ET",
     ]);
   });
 
@@ -177,11 +168,11 @@ describe("serializePublicSlots", () => {
     ];
 
     const publicSlots = serializePublicSlots(buildPublicCalendarSlots(rules, bookings, "2026-06-17", "2026-06-17"));
-    const exactBookingSlot = publicSlots.find((slot) => slot.timeLabel === "10:15 PM - 11:15 PM ET");
+    const overlappingBookingSlot = publicSlots.find((slot) => slot.timeLabel === "10:00 PM - 11:00 PM ET");
 
-    expect(publicSlots).toHaveLength(13);
-    expect(exactBookingSlot?.status).toBe("blocked");
-    expect(publicSlots.find((slot) => slot.timeLabel === "9:15 PM - 10:15 PM ET")?.status).toBe("available");
+    expect(publicSlots).toHaveLength(7);
+    expect(overlappingBookingSlot?.status).toBe("blocked");
+    expect(publicSlots.find((slot) => slot.timeLabel === "9:00 PM - 10:00 PM ET")?.status).toBe("available");
     expect(JSON.stringify(publicSlots)).not.toContain("jason@example.com");
     expect(JSON.stringify(publicSlots)).not.toContain("example.zoom.us");
     expect(JSON.stringify(publicSlots)).not.toContain("private raw invite");
