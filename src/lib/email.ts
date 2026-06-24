@@ -81,10 +81,22 @@ export async function sendBookingNotification(booking: Booking): Promise<{ sent:
 }
 
 export function queueBookingNotification(booking: Booking): void {
-  void sendBookingNotification(booking).catch((error: unknown) => {
-    console.error("預約已建立，但通知信寄送失敗。", {
-      bookingId: booking.id,
-      error: error instanceof Error ? error.message : String(error),
+  void sendBookingNotification(booking)
+    .then((result) => {
+      if (result.sent) {
+        console.log("預約通知信已交由 SMTP 寄送。", { bookingId: booking.id });
+        return;
+      }
+
+      console.warn("預約通知信未寄送。", {
+        bookingId: booking.id,
+        reason: result.reason || "unknown",
+      });
+    })
+    .catch((error: unknown) => {
+      console.error("預約已建立，但通知信寄送失敗。", {
+        bookingId: booking.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     });
-  });
 }
