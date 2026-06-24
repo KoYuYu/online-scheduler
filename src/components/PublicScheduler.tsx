@@ -177,15 +177,17 @@ export function PublicScheduler() {
         throw new Error(data.error || "預約失敗。");
       }
       setMessage({ type: "success", text: "預約已確認，這段時間已保留。" });
+      setMode("calendar");
       setSelectedSlot(null);
       setPreview(null);
       setPreviewAvailable(null);
+      setSuggestions([]);
       setZoomText("");
       setBookerName("");
       setZoomJoinUrl("");
       setNotes("");
       clearPdfAttachment();
-      await loadSlots(weekOffset);
+      void loadSlots(weekOffset);
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "預約失敗。" });
     } finally {

@@ -21,6 +21,9 @@ export async function sendBookingNotification(booking: Booking): Promise<{ sent:
     port: Number(process.env.SMTP_PORT || 465),
     secure: process.env.SMTP_SECURE !== "false",
     auth: { user, pass },
+    connectionTimeout: 8_000,
+    greetingTimeout: 8_000,
+    socketTimeout: 20_000,
   });
 
   await transporter.sendMail({
@@ -51,4 +54,13 @@ export async function sendBookingNotification(booking: Booking): Promise<{ sent:
   });
 
   return { sent: true };
+}
+
+export function queueBookingNotification(booking: Booking): void {
+  void sendBookingNotification(booking).catch((error: unknown) => {
+    console.error("預約已建立，但通知信寄送失敗。", {
+      bookingId: booking.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }

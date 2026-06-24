@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { pdfAttachmentErrorMessage, sanitizePdfAttachment } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
-import { sendBookingNotification } from "@/lib/email";
+import { queueBookingNotification } from "@/lib/email";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
 import type { BookingInput } from "@/lib/types";
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
     }
 
     const booking = await store.createBooking(input);
-    const email = await sendBookingNotification(booking);
+    queueBookingNotification(booking);
     return NextResponse.json({
       booking: {
         id: booking.id,
@@ -100,7 +100,7 @@ export async function POST(request: Request) {
         startAtUtc: booking.startAtUtc,
         endAtUtc: booking.endAtUtc,
       },
-      email,
+      email: { queued: true },
     });
   } catch (error) {
     const pdfMessage = pdfAttachmentErrorMessage(error);
