@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { AvailabilityRule, Booking, BookingInput } from "@/lib/types";
+import type { AvailabilityRule, Booking, BookingAttachment, BookingAttachmentInput, BookingInput } from "@/lib/types";
 import { overlaps } from "@/lib/availability";
 import { EASTERN_TIME_ZONE } from "@/lib/time";
 
@@ -29,12 +29,50 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeAttachment(input: BookingAttachmentInput & { id?: string; createdAt?: string }): BookingAttachment | null {
+  if (!input.fileName || !input.dataBase64) {
+    return null;
+  }
+  return {
+    id: input.id || crypto.randomUUID(),
+    fileName: input.fileName,
+    mimeType: input.mimeType || "application/octet-stream",
+    dataBase64: input.dataBase64,
+    createdAt: input.createdAt || nowIso(),
+  };
+}
+
+function inputAttachments(input: Partial<BookingInput>): BookingAttachment[] {
+  const attachments = (input.attachments || [])
+    .map((attachment) => normalizeAttachment(attachment))
+    .filter((attachment): attachment is BookingAttachment => Boolean(attachment));
+
+  if (attachments.length) {
+    return attachments;
+  }
+
+  const legacyAttachment = normalizeAttachment({
+    fileName: input.attachmentFileName || null,
+    mimeType: input.attachmentMimeType || null,
+    dataBase64: input.attachmentDataBase64 || null,
+  });
+  return legacyAttachment ? [legacyAttachment] : [];
+}
+
 function normalizeBooking(booking: Booking): Booking {
+  const attachments =
+    booking.attachments?.length
+      ? booking.attachments
+          .map((attachment) => normalizeAttachment(attachment))
+          .filter((attachment): attachment is BookingAttachment => Boolean(attachment))
+      : inputAttachments(booking);
+  const firstAttachment = attachments[0] || null;
   return {
     ...booking,
-    attachmentFileName: booking.attachmentFileName || null,
-    attachmentMimeType: booking.attachmentMimeType || null,
-    attachmentDataBase64: booking.attachmentDataBase64 || null,
+    attachmentFileName: firstAttachment?.fileName || null,
+    attachmentMimeType: firstAttachment?.mimeType || null,
+    attachmentDataBase64: firstAttachment?.dataBase64 || null,
+    attachments,
   };
 }
 
@@ -184,6 +222,8 @@ export class JsonStore {
       throw new Error("BOOKING_CONFLICT");
     }
     const timestamp = nowIso();
+    const attachments = inputAttachments(input);
+    const firstAttachment = attachments[0] || null;
     const booking: Booking = {
       id: crypto.randomUUID(),
       source: input.source,
@@ -198,9 +238,10 @@ export class JsonStore {
       meetingId: input.meetingId || null,
       passcode: input.passcode || null,
       rawInviteText: input.rawInviteText || null,
-      attachmentFileName: input.attachmentFileName || null,
-      attachmentMimeType: input.attachmentMimeType || null,
-      attachmentDataBase64: input.attachmentDataBase64 || null,
+      attachmentFileName: firstAttachment?.fileName || null,
+      attachmentMimeType: firstAttachment?.mimeType || null,
+      attachmentDataBase64: firstAttachment?.dataBase64 || null,
+      attachments,
       status: "confirmed",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -216,7 +257,28 @@ export class JsonStore {
     if (index < 0) {
       return null;
     }
-    const merged = normalizeBooking({ ...data.bookings[index], ...input, id, updatedAt: nowIso() });
+    const existing = normalizeBooking(data.bookings[index]);
+    const legacyAttachmentPatch =
+      "attachmentFileName" in input || "attachmentMimeType" in input || "attachmentDataBase64" in input;
+    const replacementAttachments = input.attachments !== undefined || legacyAttachmentPatch ? inputAttachments(input) : existing.attachments;
+    const appendedAttachments = (input.appendAttachments || [])
+      .map((attachment) => normalizeAttachment(attachment))
+      .filter((attachment): attachment is BookingAttachment => Boolean(attachment));
+    const removedIds = new Set(input.removeAttachmentIds || []);
+    const nextAttachments = (input.clearAttachments ? [] : replacementAttachments)
+      .filter((attachment) => !removedIds.has(attachment.id))
+      .concat(appendedAttachments);
+    const firstAttachment = nextAttachments[0] || null;
+    const merged = normalizeBooking({
+      ...existing,
+      ...input,
+      id,
+      attachmentFileName: firstAttachment?.fileName || null,
+      attachmentMimeType: firstAttachment?.mimeType || null,
+      attachmentDataBase64: firstAttachment?.dataBase64 || null,
+      attachments: nextAttachments,
+      updatedAt: nowIso(),
+    });
     const conflict = data.bookings.find(
       (booking) =>
         booking.id !== id &&

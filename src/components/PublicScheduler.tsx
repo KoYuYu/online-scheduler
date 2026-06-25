@@ -54,7 +54,7 @@ export function PublicScheduler() {
   const [bookerName, setBookerName] = useState("");
   const [zoomJoinUrl, setZoomJoinUrl] = useState("");
   const [notes, setNotes] = useState("");
-  const [attachment, setAttachment] = useState<AttachmentState | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentState[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [attachmentInputKey, setAttachmentInputKey] = useState(0);
   const [zoomText, setZoomText] = useState("");
@@ -198,7 +198,7 @@ export function PublicScheduler() {
       setBookerName("");
       setZoomJoinUrl("");
       setNotes("");
-      clearAttachment();
+      clearAttachments();
       void loadSlots(weekOffset);
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "預約失敗。" });
@@ -229,7 +229,7 @@ export function PublicScheduler() {
       bookerName,
       zoomJoinUrl,
       notes,
-      ...buildAttachmentPayload(attachment),
+      ...buildAttachmentPayload(attachments),
     });
   }
 
@@ -242,38 +242,47 @@ export function PublicScheduler() {
       source: "zoom",
       rawInviteText: zoomText,
       sourceTimeZone: selectedSourceTimeZone || undefined,
-      ...buildAttachmentPayload(attachment),
+      ...buildAttachmentPayload(attachments),
     });
   }
 
-  async function handleAttachmentChange(file: File | undefined) {
+  async function handleAttachmentChange(files: FileList | null) {
     setAttachmentError(null);
-    setAttachment(null);
-    if (!file) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) {
       return;
     }
-    if (file.size > maxAttachmentBytes) {
-      setAttachmentError("附件不可超過 5MB。");
+    const oversizedFile = selectedFiles.find((file) => file.size > maxAttachmentBytes);
+    if (oversizedFile) {
+      setAttachmentError(`${oversizedFile.name} 超過 5MB，請重新選擇。`);
       setAttachmentInputKey((current) => current + 1);
       return;
     }
 
     try {
-      const dataBase64 = await readFileAsBase64(file);
-      setAttachment({
-        fileName: file.name,
-        mimeType: file.type || "application/octet-stream",
-        dataBase64,
-        sizeBytes: file.size,
-      });
+      const nextAttachments = await Promise.all(
+        selectedFiles.map(async (file) => ({
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          dataBase64: await readFileAsBase64(file),
+          sizeBytes: file.size,
+        }))
+      );
+      setAttachments((current) => [...current, ...nextAttachments]);
     } catch {
       setAttachmentError("附件讀取失敗，請重新上傳。");
       setAttachmentInputKey((current) => current + 1);
     }
   }
 
-  function clearAttachment() {
-    setAttachment(null);
+  function clearAttachments() {
+    setAttachments([]);
+    setAttachmentError(null);
+    setAttachmentInputKey((current) => current + 1);
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index));
     setAttachmentError(null);
     setAttachmentInputKey((current) => current + 1);
   }
@@ -468,11 +477,11 @@ export function PublicScheduler() {
                 setZoomJoinUrl={setZoomJoinUrl}
               />
               <AttachmentField
-                attachment={attachment}
+                attachments={attachments}
                 error={attachmentError}
                 inputKey={attachmentInputKey}
-                onChange={(file) => void handleAttachmentChange(file)}
-                onRemove={clearAttachment}
+                onChange={(files) => void handleAttachmentChange(files)}
+                onRemove={removeAttachment}
               />
               <button
                 className="primary-button"
@@ -495,11 +504,11 @@ export function PublicScheduler() {
                 />
               </label>
               <AttachmentField
-                attachment={attachment}
+                attachments={attachments}
                 error={attachmentError}
                 inputKey={attachmentInputKey}
-                onChange={(file) => void handleAttachmentChange(file)}
-                onRemove={clearAttachment}
+                onChange={(files) => void handleAttachmentChange(files)}
+                onRemove={removeAttachment}
               />
               <button className="primary-button" disabled={loading || !zoomText.trim()} type="button" onClick={() => void openZoomConfirmation()}>
                 <Send size={17} />
@@ -530,14 +539,16 @@ export function PublicScheduler() {
   );
 }
 
-function buildAttachmentPayload(attachment: AttachmentState | null): Record<string, string> {
-  if (!attachment) {
+function buildAttachmentPayload(attachments: AttachmentState[]): Record<string, unknown> {
+  if (!attachments.length) {
     return {};
   }
   return {
-    attachmentFileName: attachment.fileName,
-    attachmentMimeType: attachment.mimeType,
-    attachmentDataBase64: attachment.dataBase64,
+    attachments: attachments.map((attachment) => ({
+      fileName: attachment.fileName,
+      mimeType: attachment.mimeType,
+      dataBase64: attachment.dataBase64,
+    })),
   };
 }
 
@@ -683,11 +694,11 @@ function BookingFields(props: {
 }
 
 function AttachmentField(props: {
-  attachment: AttachmentState | null;
+  attachments: AttachmentState[];
   error: string | null;
   inputKey: number;
-  onChange: (file: File | undefined) => void;
-  onRemove: () => void;
+  onChange: (files: FileList | null) => void;
+  onRemove: (index: number) => void;
 }) {
   return (
     <label className="field">
@@ -697,20 +708,25 @@ function AttachmentField(props: {
           <FileText size={16} />
           <input
             key={props.inputKey}
+            multiple
             type="file"
-            onChange={(event) => props.onChange(event.target.files?.[0])}
+            onChange={(event) => props.onChange(event.target.files)}
           />
         </div>
-        {props.attachment ? (
-          <button className="icon-button" title="移除附件" type="button" onClick={props.onRemove}>
-            <X size={16} />
-          </button>
-        ) : null}
       </div>
-      {props.attachment ? (
-        <p className="field-help">
-          已選擇 {props.attachment.fileName}（{formatFileSize(props.attachment.sizeBytes)}）
-        </p>
+      {props.attachments.length ? (
+        <div className="selected-attachments">
+          {props.attachments.map((attachment, index) => (
+            <div className="selected-attachment-row" key={`${attachment.fileName}-${attachment.sizeBytes}-${index}`}>
+              <span>
+                {attachment.fileName}（{formatFileSize(attachment.sizeBytes)}）
+              </span>
+              <button className="icon-button" title="移除附件" type="button" onClick={() => props.onRemove(index)}>
+                <X size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
       ) : (
         <p className="field-help">可選填，最多 5MB。</p>
       )}

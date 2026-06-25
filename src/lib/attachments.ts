@@ -1,20 +1,17 @@
-import type { BookingInput } from "@/lib/types";
+import type { BookingAttachmentInput, BookingInput } from "@/lib/types";
 
 const maxAttachmentBytes = 5 * 1024 * 1024;
 
 export type AttachmentInput = Pick<BookingInput, "attachmentFileName" | "attachmentMimeType" | "attachmentDataBase64">;
+export type SanitizedAttachment = Required<BookingAttachmentInput>;
 
-export function sanitizeAttachment(input: Partial<AttachmentInput>): AttachmentInput {
-  const fileName = input.attachmentFileName?.trim().split(/[/\\]/).pop() || null;
-  const mimeType = input.attachmentMimeType?.trim() || "application/octet-stream";
-  const rawBase64 = input.attachmentDataBase64?.trim() || null;
+function sanitizeAttachmentPayload(input: Partial<BookingAttachmentInput>): SanitizedAttachment | null {
+  const fileName = input.fileName?.trim().split(/[/\\]/).pop() || null;
+  const mimeType = input.mimeType?.trim() || "application/octet-stream";
+  const rawBase64 = input.dataBase64?.trim() || null;
 
-  if (!fileName && !input.attachmentMimeType?.trim() && !rawBase64) {
-    return {
-      attachmentFileName: null,
-      attachmentMimeType: null,
-      attachmentDataBase64: null,
-    };
+  if (!fileName && !input.mimeType?.trim() && !rawBase64) {
+    return null;
   }
 
   if (!fileName || !rawBase64) {
@@ -32,10 +29,50 @@ export function sanitizeAttachment(input: Partial<AttachmentInput>): AttachmentI
   }
 
   return {
-    attachmentFileName: fileName,
-    attachmentMimeType: mimeType,
-    attachmentDataBase64: decoded.toString("base64"),
+    fileName,
+    mimeType,
+    dataBase64: decoded.toString("base64"),
   };
+}
+
+export function sanitizeAttachment(input: Partial<AttachmentInput>): AttachmentInput {
+  const attachment = sanitizeAttachmentPayload({
+    fileName: input.attachmentFileName,
+    mimeType: input.attachmentMimeType,
+    dataBase64: input.attachmentDataBase64,
+  });
+
+  if (!attachment) {
+    return {
+      attachmentFileName: null,
+      attachmentMimeType: null,
+      attachmentDataBase64: null,
+    };
+  }
+
+  return {
+    attachmentFileName: attachment.fileName,
+    attachmentMimeType: attachment.mimeType,
+    attachmentDataBase64: attachment.dataBase64,
+  };
+}
+
+export function sanitizeAttachments(input: { attachments?: BookingAttachmentInput[] } & Partial<AttachmentInput>): SanitizedAttachment[] {
+  const rawAttachments = Array.isArray(input.attachments) ? input.attachments : [];
+  const attachments = rawAttachments
+    .map((attachment) => sanitizeAttachmentPayload(attachment))
+    .filter((attachment): attachment is SanitizedAttachment => Boolean(attachment));
+
+  if (attachments.length) {
+    return attachments;
+  }
+
+  const legacyAttachment = sanitizeAttachmentPayload({
+    fileName: input.attachmentFileName,
+    mimeType: input.attachmentMimeType,
+    dataBase64: input.attachmentDataBase64,
+  });
+  return legacyAttachment ? [legacyAttachment] : [];
 }
 
 export function attachmentErrorMessage(error: unknown): string | null {

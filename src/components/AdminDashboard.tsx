@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { addMinutes, localYmdTimeToUtc } from "@/lib/time";
-import type { AvailabilityRule, Booking, ParsedZoomInvite } from "@/lib/types";
+import type { AvailabilityRule, Booking, BookingAttachment, ParsedZoomInvite } from "@/lib/types";
 
 const weekdays = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
@@ -54,9 +54,9 @@ type BookingEditFormState = {
   passcode: string;
   rawInviteText: string;
   status: Booking["status"];
-  attachmentFileName: string | null;
-  attachmentMimeType: string | null;
-  attachmentDataBase64: string | null;
+  attachments: BookingAttachment[];
+  pendingAttachments: Array<Omit<BookingAttachment, "id" | "createdAt"> & { sizeBytes?: number }>;
+  removeAttachmentIds: string[];
 };
 
 export function AdminDashboard() {
@@ -220,36 +220,59 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleEditAttachmentChange(file: File | undefined) {
+  async function handleEditAttachmentChange(files: FileList | null) {
     setEditAttachmentError(null);
-    if (!file) {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length) {
       return;
     }
-    if (file.size > maxAttachmentBytes) {
-      setEditAttachmentError("附件不可超過 5MB。");
+    const oversizedFile = selectedFiles.find((file) => file.size > maxAttachmentBytes);
+    if (oversizedFile) {
+      setEditAttachmentError(`${oversizedFile.name} 超過 5MB，請重新選擇。`);
       setEditFileInputKey((current) => current + 1);
       return;
     }
 
     try {
-      const dataBase64 = await readFileAsBase64(file);
-      updateEditForm({
-        attachmentFileName: file.name,
-        attachmentMimeType: file.type || "application/octet-stream",
-        attachmentDataBase64: dataBase64,
-      });
+      const nextAttachments = await Promise.all(
+        selectedFiles.map(async (file) => ({
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          dataBase64: await readFileAsBase64(file),
+          sizeBytes: file.size,
+        }))
+      );
+      setEditForm((current) =>
+        current ? { ...current, pendingAttachments: [...current.pendingAttachments, ...nextAttachments] } : current
+      );
     } catch {
       setEditAttachmentError("附件讀取失敗，請重新上傳。");
       setEditFileInputKey((current) => current + 1);
     }
   }
 
-  function clearEditAttachment() {
-    updateEditForm({
-      attachmentFileName: null,
-      attachmentMimeType: null,
-      attachmentDataBase64: null,
-    });
+  function removeExistingEditAttachment(id: string) {
+    setEditForm((current) =>
+      current
+        ? {
+            ...current,
+            attachments: current.attachments.filter((attachment) => attachment.id !== id),
+            removeAttachmentIds: [...current.removeAttachmentIds, id],
+          }
+        : current
+    );
+    setEditAttachmentError(null);
+  }
+
+  function removePendingEditAttachment(index: number) {
+    setEditForm((current) =>
+      current
+        ? {
+            ...current,
+            pendingAttachments: current.pendingAttachments.filter((_, currentIndex) => currentIndex !== index),
+          }
+        : current
+    );
     setEditAttachmentError(null);
     setEditFileInputKey((current) => current + 1);
   }
@@ -288,10 +311,12 @@ export function AdminDashboard() {
           passcode: editForm.passcode,
           rawInviteText: editForm.rawInviteText,
           status: editForm.status,
-          clearAttachment: !editForm.attachmentFileName,
-          attachmentFileName: editForm.attachmentFileName,
-          attachmentMimeType: editForm.attachmentMimeType,
-          attachmentDataBase64: editForm.attachmentDataBase64,
+          removeAttachmentIds: editForm.removeAttachmentIds,
+          appendAttachments: editForm.pendingAttachments.map((attachment) => ({
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            dataBase64: attachment.dataBase64,
+          })),
         }),
       });
       const data = (await response.json()) as { error?: string };
@@ -454,11 +479,15 @@ export function AdminDashboard() {
                       {booking.passcode ? <span>{booking.passcode}</span> : null}
                     </p>
                   ) : null}
-                  {booking.attachmentDataBase64 && booking.attachmentFileName ? (
-                    <p className="muted link-line">
-                      <FileText size={14} />
-                      <a href={buildAttachmentDataUrl(booking)} download={booking.attachmentFileName}>下載附件：{booking.attachmentFileName}</a>
-                    </p>
+                  {booking.attachments.length ? (
+                    <div className="attachment-list">
+                      {booking.attachments.map((attachment) => (
+                        <a className="attachment-link" href={buildAttachmentDataUrl(attachment)} download={attachment.fileName} key={attachment.id}>
+                          <FileText size={14} />
+                          下載附件：{attachment.fileName}
+                        </a>
+                      ))}
+                    </div>
                   ) : null}
                   {editingBookingId === booking.id && editForm ? (
                     <BookingEditFields
@@ -468,8 +497,9 @@ export function AdminDashboard() {
                       saving={editSaving}
                       onCancel={cancelEditingBooking}
                       onChange={updateEditForm}
-                      onFileChange={(file) => void handleEditAttachmentChange(file)}
-                      onRemoveAttachment={clearEditAttachment}
+                      onFileChange={(files) => void handleEditAttachmentChange(files)}
+                      onRemoveExistingAttachment={removeExistingEditAttachment}
+                      onRemovePendingAttachment={removePendingEditAttachment}
                       onSave={() => void saveBookingEdit(booking.id)}
                       onStartChange={handleEditStartChange}
                     />
@@ -575,7 +605,8 @@ function BookingEditFields({
   onCancel,
   onChange,
   onFileChange,
-  onRemoveAttachment,
+  onRemoveExistingAttachment,
+  onRemovePendingAttachment,
   onSave,
   onStartChange,
 }: {
@@ -585,8 +616,9 @@ function BookingEditFields({
   saving: boolean;
   onCancel: () => void;
   onChange: (patch: Partial<BookingEditFormState>) => void;
-  onFileChange: (file: File | undefined) => void;
-  onRemoveAttachment: () => void;
+  onFileChange: (files: FileList | null) => void;
+  onRemoveExistingAttachment: (id: string) => void;
+  onRemovePendingAttachment: (index: number) => void;
   onSave: () => void;
   onStartChange: (value: string) => void;
 }) {
@@ -669,18 +701,32 @@ function BookingEditFields({
       </label>
 
       <div className="attachment-manager">
-        {form.attachmentFileName && form.attachmentDataBase64 ? (
-          <div className="attachment-row">
-            <span>
-              <FileText size={15} />
-              <a href={buildAttachmentDataUrl(form)} download={form.attachmentFileName}>
-                {form.attachmentFileName}
-              </a>
-            </span>
-            <button className="ghost-button compact-button" type="button" onClick={onRemoveAttachment}>
-              <X size={15} />
-              移除
-            </button>
+        {form.attachments.length || form.pendingAttachments.length ? (
+          <div className="selected-attachments">
+            {form.attachments.map((attachment) => (
+              <div className="selected-attachment-row" key={attachment.id}>
+                <span>
+                  <FileText size={15} />
+                  <a href={buildAttachmentDataUrl(attachment)} download={attachment.fileName}>
+                    {attachment.fileName}
+                  </a>
+                </span>
+                <button className="icon-button" title="移除附件" type="button" onClick={() => onRemoveExistingAttachment(attachment.id)}>
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+            {form.pendingAttachments.map((attachment, index) => (
+              <div className="selected-attachment-row" key={`${attachment.fileName}-${attachment.sizeBytes || 0}-${index}`}>
+                <span>
+                  <FileText size={15} />
+                  {attachment.fileName}（待新增）
+                </span>
+                <button className="icon-button" title="移除附件" type="button" onClick={() => onRemovePendingAttachment(index)}>
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
           </div>
         ) : (
           <p className="field-help">目前沒有附件。</p>
@@ -691,8 +737,9 @@ function BookingEditFields({
             <Upload size={15} />
             <input
               key={fileInputKey}
+              multiple
               type="file"
-              onChange={(event) => onFileChange(event.target.files?.[0])}
+              onChange={(event) => onFileChange(event.target.files)}
             />
           </div>
         </label>
@@ -741,9 +788,9 @@ function bookingToEditForm(booking: Booking): BookingEditFormState {
     passcode: booking.passcode || "",
     rawInviteText: booking.rawInviteText || "",
     status: booking.status,
-    attachmentFileName: booking.attachmentFileName,
-    attachmentMimeType: booking.attachmentMimeType,
-    attachmentDataBase64: booking.attachmentDataBase64,
+    attachments: booking.attachments || [],
+    pendingAttachments: [],
+    removeAttachmentIds: [],
   };
 }
 
@@ -819,8 +866,8 @@ function formatSourceLabel(source: Booking["source"]): string {
   return labels[source] || source;
 }
 
-function buildAttachmentDataUrl(attachment: Pick<Booking, "attachmentMimeType" | "attachmentDataBase64">): string {
-  return `data:${attachment.attachmentMimeType || "application/octet-stream"};base64,${attachment.attachmentDataBase64 || ""}`;
+function buildAttachmentDataUrl(attachment: Pick<BookingAttachment, "mimeType" | "dataBase64">): string {
+  return `data:${attachment.mimeType || "application/octet-stream"};base64,${attachment.dataBase64 || ""}`;
 }
 
 function minutesFromTime(value: string): number {

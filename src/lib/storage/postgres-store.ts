@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Pool, type PoolClient } from "pg";
-import type { AvailabilityRule, Booking, BookingInput } from "@/lib/types";
+import type { AvailabilityRule, Booking, BookingAttachment, BookingAttachmentInput, BookingInput } from "@/lib/types";
 
 type AdminUser = {
   id: string;
@@ -22,7 +22,29 @@ function byteaToBase64(value: unknown): string | null {
   return null;
 }
 
-function mapBooking(row: Record<string, unknown>): Booking {
+function mapAttachment(row: Record<string, unknown>): BookingAttachment {
+  return {
+    id: String(row.id),
+    fileName: String(row.file_name),
+    mimeType: String(row.mime_type || "application/octet-stream"),
+    dataBase64: byteaToBase64(row.data) || "",
+    createdAt: new Date(row.created_at as string).toISOString(),
+  };
+}
+
+function mapBooking(row: Record<string, unknown>, attachments: BookingAttachment[] = []): Booking {
+  const legacyAttachment =
+    row.attachment_file_name && row.attachment_data
+      ? {
+          id: `legacy-${String(row.id)}`,
+          fileName: String(row.attachment_file_name),
+          mimeType: String(row.attachment_mime_type || "application/octet-stream"),
+          dataBase64: byteaToBase64(row.attachment_data) || "",
+          createdAt: new Date(row.created_at as string).toISOString(),
+        }
+      : null;
+  const finalAttachments = attachments.length ? attachments : legacyAttachment ? [legacyAttachment] : [];
+  const firstAttachment = finalAttachments[0] || null;
   return {
     id: String(row.id),
     source: row.source as Booking["source"],
@@ -37,9 +59,10 @@ function mapBooking(row: Record<string, unknown>): Booking {
     meetingId: (row.meeting_id as string | null) || null,
     passcode: (row.passcode as string | null) || null,
     rawInviteText: (row.raw_invite_text as string | null) || null,
-    attachmentFileName: (row.attachment_file_name as string | null) || null,
-    attachmentMimeType: (row.attachment_mime_type as string | null) || null,
-    attachmentDataBase64: byteaToBase64(row.attachment_data),
+    attachmentFileName: firstAttachment?.fileName || null,
+    attachmentMimeType: firstAttachment?.mimeType || null,
+    attachmentDataBase64: firstAttachment?.dataBase64 || null,
+    attachments: finalAttachments,
     status: row.status as Booking["status"],
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
@@ -58,6 +81,34 @@ function mapRule(row: Record<string, unknown>): AvailabilityRule {
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
   };
+}
+
+function normalizeAttachmentInput(input: BookingAttachmentInput): Omit<BookingAttachment, "id" | "createdAt"> | null {
+  if (!input.fileName || !input.dataBase64) {
+    return null;
+  }
+  return {
+    fileName: input.fileName,
+    mimeType: input.mimeType || "application/octet-stream",
+    dataBase64: input.dataBase64,
+  };
+}
+
+function inputAttachments(input: Partial<BookingInput>): Array<Omit<BookingAttachment, "id" | "createdAt">> {
+  const attachments = (input.attachments || [])
+    .map((attachment) => normalizeAttachmentInput(attachment))
+    .filter((attachment): attachment is Omit<BookingAttachment, "id" | "createdAt"> => Boolean(attachment));
+
+  if (attachments.length) {
+    return attachments;
+  }
+
+  const legacyAttachment = normalizeAttachmentInput({
+    fileName: input.attachmentFileName || null,
+    mimeType: input.attachmentMimeType || null,
+    dataBase64: input.attachmentDataBase64 || null,
+  });
+  return legacyAttachment ? [legacyAttachment] : [];
 }
 
 export class PostgresStore {
@@ -148,7 +199,65 @@ export class PostgresStore {
             [fromUtc, toUtc]
           )
         : await this.pool.query("SELECT * FROM bookings ORDER BY start_at_utc");
-    return result.rows.map(mapBooking);
+    return this.mapBookingsWithAttachments(result.rows);
+  }
+
+  private async mapBookingsWithAttachments(rows: Record<string, unknown>[]): Promise<Booking[]> {
+    if (!rows.length) {
+      return [];
+    }
+    const ids = rows.map((row) => String(row.id));
+    const attachmentsByBookingId = await this.listAttachmentsByBookingIds(ids);
+    return rows.map((row) => mapBooking(row, attachmentsByBookingId.get(String(row.id)) || []));
+  }
+
+  private async listAttachmentsByBookingIds(ids: string[], client: Pool | PoolClient = this.pool): Promise<Map<string, BookingAttachment[]>> {
+    const attachmentsByBookingId = new Map<string, BookingAttachment[]>();
+    if (!ids.length) {
+      return attachmentsByBookingId;
+    }
+    const result = await client.query(
+      `SELECT * FROM booking_attachments
+       WHERE booking_id = ANY($1::text[])
+       ORDER BY created_at, id`,
+      [ids]
+    );
+    for (const row of result.rows) {
+      const bookingId = String(row.booking_id);
+      const current = attachmentsByBookingId.get(bookingId) || [];
+      current.push(mapAttachment(row));
+      attachmentsByBookingId.set(bookingId, current);
+    }
+    return attachmentsByBookingId;
+  }
+
+  private async replaceBookingAttachments(
+    client: PoolClient,
+    bookingId: string,
+    attachments: Array<Omit<BookingAttachment, "id" | "createdAt">>
+  ): Promise<void> {
+    await client.query("DELETE FROM booking_attachments WHERE booking_id = $1", [bookingId]);
+    await this.appendBookingAttachments(client, bookingId, attachments);
+  }
+
+  private async appendBookingAttachments(
+    client: PoolClient,
+    bookingId: string,
+    attachments: Array<Omit<BookingAttachment, "id" | "createdAt">>
+  ): Promise<void> {
+    for (const attachment of attachments) {
+      await client.query(
+        `INSERT INTO booking_attachments (id, booking_id, file_name, mime_type, data)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          crypto.randomUUID(),
+          bookingId,
+          attachment.fileName,
+          attachment.mimeType,
+          Buffer.from(attachment.dataBase64, "base64"),
+        ]
+      );
+    }
   }
 
   async createBooking(input: BookingInput): Promise<Booking> {
@@ -178,6 +287,9 @@ export class PostgresStore {
   }
 
   private async insertBooking(client: PoolClient, input: BookingInput): Promise<Booking> {
+    const bookingId = crypto.randomUUID();
+    const attachments = inputAttachments(input);
+    const firstAttachment = attachments[0] || null;
     const result = await client.query(
       `INSERT INTO bookings (
         id, source, title, start_at_utc, end_at_utc, booker_name, booker_email, notes,
@@ -187,7 +299,7 @@ export class PostgresStore {
        VALUES ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [
-        crypto.randomUUID(),
+        bookingId,
         input.source,
         input.title,
         input.startAtUtc,
@@ -200,12 +312,14 @@ export class PostgresStore {
         input.meetingId || null,
         input.passcode || null,
         input.rawInviteText || null,
-        input.attachmentFileName || null,
-        input.attachmentMimeType || null,
-        input.attachmentDataBase64 ? Buffer.from(input.attachmentDataBase64, "base64") : null,
+        firstAttachment?.fileName || null,
+        firstAttachment?.mimeType || null,
+        firstAttachment ? Buffer.from(firstAttachment.dataBase64, "base64") : null,
       ]
     );
-    return mapBooking(result.rows[0]);
+    await this.appendBookingAttachments(client, bookingId, attachments);
+    const attachmentsByBookingId = await this.listAttachmentsByBookingIds([bookingId], client);
+    return mapBooking(result.rows[0], attachmentsByBookingId.get(bookingId) || []);
   }
 
   async updateBooking(id: string, input: Partial<BookingInput & { status: Booking["status"] }>): Promise<Booking | null> {
@@ -217,7 +331,31 @@ export class PostgresStore {
         await client.query("ROLLBACK");
         return null;
       }
-      const merged = { ...mapBooking(current.rows[0]), ...input };
+      const currentAttachmentsByBookingId = await this.listAttachmentsByBookingIds([id], client);
+      const currentBooking = mapBooking(current.rows[0], currentAttachmentsByBookingId.get(id) || []);
+      const legacyAttachmentPatch =
+        "attachmentFileName" in input || "attachmentMimeType" in input || "attachmentDataBase64" in input;
+      const replacementAttachments = input.attachments !== undefined || legacyAttachmentPatch ? inputAttachments(input) : currentBooking.attachments;
+      const appendAttachments = (input.appendAttachments || [])
+        .map((attachment) => normalizeAttachmentInput(attachment))
+        .filter((attachment): attachment is Omit<BookingAttachment, "id" | "createdAt"> => Boolean(attachment));
+      const removedIds = new Set(input.removeAttachmentIds || []);
+      const nextAttachments = (input.clearAttachments ? [] : replacementAttachments)
+        .filter((attachment) => !("id" in attachment) || typeof attachment.id !== "string" || !removedIds.has(attachment.id))
+        .map((attachment) => ({
+          fileName: attachment.fileName,
+          mimeType: attachment.mimeType,
+          dataBase64: attachment.dataBase64,
+        }))
+        .concat(appendAttachments);
+      const firstAttachment = nextAttachments[0] || null;
+      const merged = {
+        ...currentBooking,
+        ...input,
+        attachmentFileName: firstAttachment?.fileName || null,
+        attachmentMimeType: firstAttachment?.mimeType || null,
+        attachmentDataBase64: firstAttachment?.dataBase64 || null,
+      };
       const conflict =
         merged.status === "cancelled"
           ? { rowCount: 0 }
@@ -255,14 +393,16 @@ export class PostgresStore {
           merged.meetingId,
           merged.passcode,
           merged.rawInviteText,
-          merged.attachmentFileName,
-          merged.attachmentMimeType,
-          merged.attachmentDataBase64 ? Buffer.from(merged.attachmentDataBase64, "base64") : null,
+          firstAttachment?.fileName || null,
+          firstAttachment?.mimeType || null,
+          firstAttachment ? Buffer.from(firstAttachment.dataBase64, "base64") : null,
           merged.status,
         ]
       );
+      await this.replaceBookingAttachments(client, id, nextAttachments);
+      const attachmentsByBookingId = await this.listAttachmentsByBookingIds([id], client);
       await client.query("COMMIT");
-      return mapBooking(result.rows[0]);
+      return mapBooking(result.rows[0], attachmentsByBookingId.get(id) || []);
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

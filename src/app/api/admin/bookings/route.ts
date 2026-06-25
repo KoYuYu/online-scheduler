@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
-import { attachmentErrorMessage, sanitizeAttachment } from "@/lib/attachments";
+import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { getStore } from "@/lib/storage";
 import type { BookingInput } from "@/lib/types";
 
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
     if (!body.startAtUtc || !body.endAtUtc || !body.title) {
       return NextResponse.json({ error: "缺少預約資訊。" }, { status: 400 });
     }
-    const attachment = sanitizeAttachment(body);
+    const attachments = sanitizeAttachments(body);
     const booking = await getStore().createBooking({
       source: body.source || "admin",
       title: body.title,
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
       meetingId: body.meetingId || null,
       passcode: body.passcode || null,
       rawInviteText: body.rawInviteText || null,
-      ...attachment,
+      attachments,
     });
     return NextResponse.json({ booking });
   } catch (error) {

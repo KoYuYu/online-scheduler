@@ -804,6 +804,43 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.attachment-list,
+.selected-attachments {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.attachment-link,
+.selected-attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 9px;
+  color: var(--text-soft);
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.84rem;
+  font-weight: 680;
+  overflow-wrap: anywhere;
+}
+
+.attachment-link {
+  justify-content: flex-start;
+  text-decoration: underline;
+}
+
+.selected-attachment-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .note-line {
   margin-top: 10px;
   padding: 9px 10px;

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { attachmentErrorMessage, sanitizeAttachment } from "@/lib/attachments";
+import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { getAdminSession } from "@/lib/auth";
 import { getStore } from "@/lib/storage";
 import type { Booking, BookingInput } from "@/lib/types";
@@ -43,15 +43,25 @@ export async function PATCH(request: NextRequest, context: Params) {
 
     const hasAttachmentInput =
       body.clearAttachment ||
+      body.clearAttachments ||
+      body.attachments !== undefined ||
+      body.appendAttachments !== undefined ||
+      body.removeAttachmentIds !== undefined ||
       body.attachmentFileName !== undefined ||
       body.attachmentMimeType !== undefined ||
       body.attachmentDataBase64 !== undefined;
-    const attachment = body.clearAttachment
-      ? { attachmentFileName: null, attachmentMimeType: null, attachmentDataBase64: null }
-      : hasAttachmentInput
-        ? sanitizeAttachment(body)
-        : {};
-    const patch: Partial<BookingInput & { status: Booking["status"] }> = { ...attachment };
+    const replacingAttachments = body.attachments !== undefined || body.attachmentFileName !== undefined || body.attachmentDataBase64 !== undefined;
+    const patch: Partial<BookingInput & { status: Booking["status"] }> = {};
+    if (hasAttachmentInput) {
+      patch.clearAttachments = Boolean(body.clearAttachment || body.clearAttachments);
+      patch.removeAttachmentIds = Array.isArray(body.removeAttachmentIds) ? body.removeAttachmentIds : [];
+      if (replacingAttachments) {
+        patch.attachments = sanitizeAttachments(body);
+      }
+      if (body.appendAttachments !== undefined) {
+        patch.appendAttachments = sanitizeAttachments({ attachments: body.appendAttachments });
+      }
+    }
     if ("source" in body) patch.source = body.source;
     if ("title" in body) patch.title = body.title?.trim();
     if ("startAtUtc" in body) patch.startAtUtc = body.startAtUtc;

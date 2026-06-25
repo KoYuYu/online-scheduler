@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { attachmentErrorMessage, sanitizeAttachment } from "@/lib/attachments";
+import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
 import { getStore } from "@/lib/storage";
@@ -24,7 +24,7 @@ function isValidZoomUrl(value: string | null | undefined): value is string {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<BookingInput> & { rawInviteText?: string; sourceTimeZone?: string };
-    const attachment = sanitizeAttachment(body);
+    const attachments = sanitizeAttachments(body);
 
     let input: BookingInput;
     if (body.source === "zoom") {
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         meetingId: parsed.meetingId,
         passcode: parsed.passcode,
         rawInviteText: parsed.rawInviteText,
-        ...attachment,
+        attachments,
       };
     } else {
       if (!body.bookerName?.trim()) {
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         bookerEmail: null,
         notes: body.notes || null,
         zoomJoinUrl: body.zoomJoinUrl.trim(),
-        ...attachment,
+        attachments,
       };
     }
 

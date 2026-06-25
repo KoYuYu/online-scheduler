@@ -15,25 +15,21 @@ function getBookingNotificationText(booking: Booking): string {
     `Zoom: ${booking.zoomJoinUrl || ""}`,
     `會議號：${booking.meetingId || ""}`,
     `密碼：${booking.passcode || ""}`,
-    `附件：${booking.attachmentFileName || "無"}`,
+    `附件：${booking.attachments.length ? booking.attachments.map((attachment) => attachment.fileName).join(", ") : "無"}`,
     `備註：${booking.notes || ""}`,
   ].join("\n");
 }
 
-function getAttachment(booking: Booking) {
-  if (!booking.attachmentDataBase64 || !booking.attachmentFileName) {
-    return undefined;
-  }
-
-  return {
-    filename: booking.attachmentFileName,
-    content: booking.attachmentDataBase64,
-    contentType: booking.attachmentMimeType || "application/octet-stream",
-  };
+function getAttachments(booking: Booking) {
+  return booking.attachments.map((attachment) => ({
+    filename: attachment.fileName,
+    content: attachment.dataBase64,
+    contentType: attachment.mimeType || "application/octet-stream",
+  }));
 }
 
 async function sendWithResend(booking: Booking, apiKey: string, to: string): Promise<NotificationResult> {
-  const attachment = getAttachment(booking);
+  const attachments = getAttachments(booking);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -45,7 +41,9 @@ async function sendWithResend(booking: Booking, apiKey: string, to: string): Pro
       to: [to],
       subject: `新預約：${booking.title}`,
       text: getBookingNotificationText(booking),
-      attachments: attachment ? [{ filename: attachment.filename, content: attachment.content }] : undefined,
+      attachments: attachments.length
+        ? attachments.map((attachment) => ({ filename: attachment.filename, content: attachment.content }))
+        : undefined,
     }),
     signal: AbortSignal.timeout(20_000),
   });
@@ -110,19 +108,17 @@ export async function sendBookingNotification(booking: Booking): Promise<Notific
     tls: connectionHost === host ? undefined : { servername: host },
   });
 
-  const attachment = getAttachment(booking);
+  const attachments = getAttachments(booking);
   await transporter.sendMail({
     to,
     from: process.env.SMTP_FROM_EMAIL || user,
     subject: `新預約：${booking.title}`,
-    attachments: attachment
-      ? [
-          {
-            filename: attachment.filename,
-            content: Buffer.from(attachment.content, "base64"),
-            contentType: attachment.contentType,
-          },
-        ]
+    attachments: attachments.length
+      ? attachments.map((attachment) => ({
+          filename: attachment.filename,
+          content: Buffer.from(attachment.content, "base64"),
+          contentType: attachment.contentType,
+        }))
       : undefined,
     text: getBookingNotificationText(booking),
   });

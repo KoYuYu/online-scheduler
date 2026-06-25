@@ -1,5 +1,19 @@
 export type BookingSource = "manual" | "zoom" | "admin" | "admin_zoom";
 
+export type BookingAttachment = {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
+  createdAt?: string;
+};
+
+export type BookingAttachmentInput = {
+  fileName?: string | null;
+  mimeType?: string | null;
+  dataBase64?: string | null;
+};
+
 export type Booking = {
   id: string;
   source: BookingSource;
@@ -17,6 +31,7 @@ export type Booking = {
   attachmentFileName: string | null;
   attachmentMimeType: string | null;
   attachmentDataBase64: string | null;
+  attachments: BookingAttachment[];
   status: "confirmed" | "cancelled";
   createdAt: string;
   updatedAt: string;
@@ -91,4 +106,8 @@ export type BookingInput = {
   attachmentFileName?: string | null;
   attachmentMimeType?: string | null;
   attachmentDataBase64?: string | null;
+  attachments?: BookingAttachmentInput[];
+  appendAttachments?: BookingAttachmentInput[];
+  removeAttachmentIds?: string[];
+  clearAttachments?: boolean;
 };
