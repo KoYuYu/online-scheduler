@@ -32,7 +32,7 @@ type BookingMessage = {
   text: string;
 };
 
-type PdfAttachmentState = {
+type AttachmentState = {
   fileName: string;
   mimeType: string;
   dataBase64: string;
@@ -41,7 +41,7 @@ type PdfAttachmentState = {
 
 const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
 const maxWeekOffset = 3;
-const maxPdfBytes = 5 * 1024 * 1024;
+const maxAttachmentBytes = 5 * 1024 * 1024;
 const weekdayLabels = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 
 export function PublicScheduler() {
@@ -54,9 +54,9 @@ export function PublicScheduler() {
   const [bookerName, setBookerName] = useState("");
   const [zoomJoinUrl, setZoomJoinUrl] = useState("");
   const [notes, setNotes] = useState("");
-  const [pdfAttachment, setPdfAttachment] = useState<PdfAttachmentState | null>(null);
-  const [pdfError, setPdfError] = useState<string | null>(null);
-  const [pdfInputKey, setPdfInputKey] = useState(0);
+  const [attachment, setAttachment] = useState<AttachmentState | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [attachmentInputKey, setAttachmentInputKey] = useState(0);
   const [zoomText, setZoomText] = useState("");
   const [preview, setPreview] = useState<ParsedZoomInvite | null>(null);
   const [suggestions, setSuggestions] = useState<PublicSlot[]>([]);
@@ -198,7 +198,7 @@ export function PublicScheduler() {
       setBookerName("");
       setZoomJoinUrl("");
       setNotes("");
-      clearPdfAttachment();
+      clearAttachment();
       void loadSlots(weekOffset);
     } catch (error) {
       setMessage({ type: "error", text: error instanceof Error ? error.message : "預約失敗。" });
@@ -229,7 +229,7 @@ export function PublicScheduler() {
       bookerName,
       zoomJoinUrl,
       notes,
-      ...buildPdfPayload(pdfAttachment),
+      ...buildAttachmentPayload(attachment),
     });
   }
 
@@ -242,45 +242,40 @@ export function PublicScheduler() {
       source: "zoom",
       rawInviteText: zoomText,
       sourceTimeZone: selectedSourceTimeZone || undefined,
-      ...buildPdfPayload(pdfAttachment),
+      ...buildAttachmentPayload(attachment),
     });
   }
 
-  async function handlePdfChange(file: File | undefined) {
-    setPdfError(null);
-    setPdfAttachment(null);
+  async function handleAttachmentChange(file: File | undefined) {
+    setAttachmentError(null);
+    setAttachment(null);
     if (!file) {
       return;
     }
-    if ((file.type && file.type !== "application/pdf") || !file.name.toLowerCase().endsWith(".pdf")) {
-      setPdfError("附件只支援 PDF 檔案。");
-      setPdfInputKey((current) => current + 1);
-      return;
-    }
-    if (file.size > maxPdfBytes) {
-      setPdfError("PDF 附件不可超過 5MB。");
-      setPdfInputKey((current) => current + 1);
+    if (file.size > maxAttachmentBytes) {
+      setAttachmentError("附件不可超過 5MB。");
+      setAttachmentInputKey((current) => current + 1);
       return;
     }
 
     try {
       const dataBase64 = await readFileAsBase64(file);
-      setPdfAttachment({
+      setAttachment({
         fileName: file.name,
-        mimeType: "application/pdf",
+        mimeType: file.type || "application/octet-stream",
         dataBase64,
         sizeBytes: file.size,
       });
     } catch {
-      setPdfError("PDF 讀取失敗，請重新上傳。");
-      setPdfInputKey((current) => current + 1);
+      setAttachmentError("附件讀取失敗，請重新上傳。");
+      setAttachmentInputKey((current) => current + 1);
     }
   }
 
-  function clearPdfAttachment() {
-    setPdfAttachment(null);
-    setPdfError(null);
-    setPdfInputKey((current) => current + 1);
+  function clearAttachment() {
+    setAttachment(null);
+    setAttachmentError(null);
+    setAttachmentInputKey((current) => current + 1);
   }
 
   function pickSuggestion(slot: PublicSlot) {
@@ -472,12 +467,12 @@ export function PublicScheduler() {
                 setNotes={setNotes}
                 setZoomJoinUrl={setZoomJoinUrl}
               />
-              <PdfAttachmentField
-                attachment={pdfAttachment}
-                error={pdfError}
-                inputKey={pdfInputKey}
-                onChange={(file) => void handlePdfChange(file)}
-                onRemove={clearPdfAttachment}
+              <AttachmentField
+                attachment={attachment}
+                error={attachmentError}
+                inputKey={attachmentInputKey}
+                onChange={(file) => void handleAttachmentChange(file)}
+                onRemove={clearAttachment}
               />
               <button
                 className="primary-button"
@@ -499,12 +494,12 @@ export function PublicScheduler() {
                   onChange={(event) => setZoomText(event.target.value)}
                 />
               </label>
-              <PdfAttachmentField
-                attachment={pdfAttachment}
-                error={pdfError}
-                inputKey={pdfInputKey}
-                onChange={(file) => void handlePdfChange(file)}
-                onRemove={clearPdfAttachment}
+              <AttachmentField
+                attachment={attachment}
+                error={attachmentError}
+                inputKey={attachmentInputKey}
+                onChange={(file) => void handleAttachmentChange(file)}
+                onRemove={clearAttachment}
               />
               <button className="primary-button" disabled={loading || !zoomText.trim()} type="button" onClick={() => void openZoomConfirmation()}>
                 <Send size={17} />
@@ -535,7 +530,7 @@ export function PublicScheduler() {
   );
 }
 
-function buildPdfPayload(attachment: PdfAttachmentState | null): Record<string, string> {
+function buildAttachmentPayload(attachment: AttachmentState | null): Record<string, string> {
   if (!attachment) {
     return {};
   }
@@ -553,7 +548,7 @@ function readFileAsBase64(file: File): Promise<string> {
       const result = typeof reader.result === "string" ? reader.result : "";
       resolve(result.includes(",") ? result.split(",").pop() || "" : result);
     };
-    reader.onerror = () => reject(new Error("PDF_READ_FAILED"));
+    reader.onerror = () => reject(new Error("ATTACHMENT_READ_FAILED"));
     reader.readAsDataURL(file);
   });
 }
@@ -687,8 +682,8 @@ function BookingFields(props: {
   );
 }
 
-function PdfAttachmentField(props: {
-  attachment: PdfAttachmentState | null;
+function AttachmentField(props: {
+  attachment: AttachmentState | null;
   error: string | null;
   inputKey: number;
   onChange: (file: File | undefined) => void;
@@ -696,12 +691,11 @@ function PdfAttachmentField(props: {
 }) {
   return (
     <label className="field">
-      <span>PDF 附件</span>
+      <span>附件</span>
       <div className="file-upload-row">
         <div className="input-with-icon">
           <FileText size={16} />
           <input
-            accept="application/pdf,.pdf"
             key={props.inputKey}
             type="file"
             onChange={(event) => props.onChange(event.target.files?.[0])}
@@ -718,7 +712,7 @@ function PdfAttachmentField(props: {
           已選擇 {props.attachment.fileName}（{formatFileSize(props.attachment.sizeBytes)}）
         </p>
       ) : (
-        <p className="field-help">可選填，僅支援 PDF，最多 5MB。</p>
+        <p className="field-help">可選填，最多 5MB。</p>
       )}
       {props.error ? <p className="field-error">{props.error}</p> : null}
     </label>

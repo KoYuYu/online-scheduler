@@ -15,7 +15,7 @@ function getBookingNotificationText(booking: Booking): string {
     `Zoom: ${booking.zoomJoinUrl || ""}`,
     `會議號：${booking.meetingId || ""}`,
     `密碼：${booking.passcode || ""}`,
-    `PDF附件：${booking.attachmentFileName || "無"}`,
+    `附件：${booking.attachmentFileName || "無"}`,
     `備註：${booking.notes || ""}`,
   ].join("\n");
 }
@@ -28,7 +28,7 @@ function getAttachment(booking: Booking) {
   return {
     filename: booking.attachmentFileName,
     content: booking.attachmentDataBase64,
-    contentType: booking.attachmentMimeType || "application/pdf",
+    contentType: booking.attachmentMimeType || "application/octet-stream",
   };
 }
 

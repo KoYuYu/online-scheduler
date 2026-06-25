@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { pdfAttachmentErrorMessage, sanitizePdfAttachment } from "@/lib/attachments";
+import { attachmentErrorMessage, sanitizeAttachment } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
 import { getStore } from "@/lib/storage";
@@ -24,7 +24,7 @@ function isValidZoomUrl(value: string | null | undefined): value is string {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<BookingInput> & { rawInviteText?: string; sourceTimeZone?: string };
-    const attachment = sanitizePdfAttachment(body);
+    const attachment = sanitizeAttachment(body);
 
     let input: BookingInput;
     if (body.source === "zoom") {
@@ -110,9 +110,9 @@ export async function POST(request: Request) {
       email: { queued: true },
     });
   } catch (error) {
-    const pdfMessage = pdfAttachmentErrorMessage(error);
-    if (pdfMessage) {
-      return NextResponse.json({ error: pdfMessage }, { status: 400 });
+    const attachmentMessage = attachmentErrorMessage(error);
+    if (attachmentMessage) {
+      return NextResponse.json({ error: attachmentMessage }, { status: 400 });
     }
     const message = error instanceof Error && error.message === "BOOKING_CONFLICT" ? "這個時段剛剛已被預約。" : "預約失敗。";
     return NextResponse.json({ error: message }, { status: 409 });

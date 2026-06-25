@@ -22,7 +22,7 @@ import type { AvailabilityRule, Booking, ParsedZoomInvite } from "@/lib/types";
 
 const weekdays = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
-const maxPdfBytes = 5 * 1024 * 1024;
+const maxAttachmentBytes = 5 * 1024 * 1024;
 const startTimeOptions = [
   { value: "10:00", label: "早上 10:00" },
   { value: "13:00", label: "下午 1:00" },
@@ -220,18 +220,13 @@ export function AdminDashboard() {
     }
   }
 
-  async function handleEditPdfChange(file: File | undefined) {
+  async function handleEditAttachmentChange(file: File | undefined) {
     setEditAttachmentError(null);
     if (!file) {
       return;
     }
-    if ((file.type && file.type !== "application/pdf") || !file.name.toLowerCase().endsWith(".pdf")) {
-      setEditAttachmentError("附件只支援 PDF 檔案。");
-      setEditFileInputKey((current) => current + 1);
-      return;
-    }
-    if (file.size > maxPdfBytes) {
-      setEditAttachmentError("PDF 附件不可超過 5MB。");
+    if (file.size > maxAttachmentBytes) {
+      setEditAttachmentError("附件不可超過 5MB。");
       setEditFileInputKey((current) => current + 1);
       return;
     }
@@ -240,11 +235,11 @@ export function AdminDashboard() {
       const dataBase64 = await readFileAsBase64(file);
       updateEditForm({
         attachmentFileName: file.name,
-        attachmentMimeType: "application/pdf",
+        attachmentMimeType: file.type || "application/octet-stream",
         attachmentDataBase64: dataBase64,
       });
     } catch {
-      setEditAttachmentError("PDF 讀取失敗，請重新上傳。");
+      setEditAttachmentError("附件讀取失敗，請重新上傳。");
       setEditFileInputKey((current) => current + 1);
     }
   }
@@ -462,7 +457,7 @@ export function AdminDashboard() {
                   {booking.attachmentDataBase64 && booking.attachmentFileName ? (
                     <p className="muted link-line">
                       <FileText size={14} />
-                      <a href={buildPdfDataUrl(booking)} download={booking.attachmentFileName}>下載 PDF：{booking.attachmentFileName}</a>
+                      <a href={buildAttachmentDataUrl(booking)} download={booking.attachmentFileName}>下載附件：{booking.attachmentFileName}</a>
                     </p>
                   ) : null}
                   {editingBookingId === booking.id && editForm ? (
@@ -473,7 +468,7 @@ export function AdminDashboard() {
                       saving={editSaving}
                       onCancel={cancelEditingBooking}
                       onChange={updateEditForm}
-                      onFileChange={(file) => void handleEditPdfChange(file)}
+                      onFileChange={(file) => void handleEditAttachmentChange(file)}
                       onRemoveAttachment={clearEditAttachment}
                       onSave={() => void saveBookingEdit(booking.id)}
                       onStartChange={handleEditStartChange}
@@ -678,7 +673,7 @@ function BookingEditFields({
           <div className="attachment-row">
             <span>
               <FileText size={15} />
-              <a href={buildPdfDataUrl(form)} download={form.attachmentFileName}>
+              <a href={buildAttachmentDataUrl(form)} download={form.attachmentFileName}>
                 {form.attachmentFileName}
               </a>
             </span>
@@ -691,12 +686,11 @@ function BookingEditFields({
           <p className="field-help">目前沒有附件。</p>
         )}
         <label className="field">
-          <span>上傳或替換 PDF</span>
+          <span>上傳或替換附件</span>
           <div className="input-with-icon">
             <Upload size={15} />
             <input
               key={fileInputKey}
-              accept="application/pdf,.pdf"
               type="file"
               onChange={(event) => onFileChange(event.target.files?.[0])}
             />
@@ -793,7 +787,7 @@ function readFileAsBase64(file: File): Promise<string> {
       const result = typeof reader.result === "string" ? reader.result : "";
       resolve(result.includes(",") ? result.split(",").pop() || "" : result);
     };
-    reader.onerror = () => reject(new Error("PDF_READ_FAILED"));
+    reader.onerror = () => reject(new Error("ATTACHMENT_READ_FAILED"));
     reader.readAsDataURL(file);
   });
 }
@@ -825,8 +819,8 @@ function formatSourceLabel(source: Booking["source"]): string {
   return labels[source] || source;
 }
 
-function buildPdfDataUrl(attachment: Pick<Booking, "attachmentMimeType" | "attachmentDataBase64">): string {
-  return `data:${attachment.attachmentMimeType || "application/pdf"};base64,${attachment.attachmentDataBase64 || ""}`;
+function buildAttachmentDataUrl(attachment: Pick<Booking, "attachmentMimeType" | "attachmentDataBase64">): string {
+  return `data:${attachment.attachmentMimeType || "application/octet-stream"};base64,${attachment.attachmentDataBase64 || ""}`;
 }
 
 function minutesFromTime(value: string): number {

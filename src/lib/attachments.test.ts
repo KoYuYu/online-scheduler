@@ -1,30 +1,45 @@
 import { describe, expect, it } from "vitest";
-import { sanitizePdfAttachment } from "@/lib/attachments";
+import { sanitizeAttachment } from "@/lib/attachments";
 
-describe("sanitizePdfAttachment", () => {
-  it("accepts a small PDF attachment payload", () => {
-    const pdfBase64 = Buffer.from("%PDF-1.4\n").toString("base64");
+describe("sanitizeAttachment", () => {
+  it("accepts a small attachment payload", () => {
+    const fileBase64 = Buffer.from("hello").toString("base64");
 
     expect(
-      sanitizePdfAttachment({
-        attachmentFileName: "resume.pdf",
-        attachmentMimeType: "application/pdf",
-        attachmentDataBase64: pdfBase64,
+      sanitizeAttachment({
+        attachmentFileName: "notes.txt",
+        attachmentMimeType: "text/plain",
+        attachmentDataBase64: fileBase64,
       })
     ).toEqual({
-      attachmentFileName: "resume.pdf",
-      attachmentMimeType: "application/pdf",
-      attachmentDataBase64: pdfBase64,
+      attachmentFileName: "notes.txt",
+      attachmentMimeType: "text/plain",
+      attachmentDataBase64: fileBase64,
     });
   });
 
-  it("rejects non-PDF attachments", () => {
+  it("defaults unknown MIME type to application/octet-stream", () => {
+    const fileBase64 = Buffer.from("hello").toString("base64");
+
+    expect(
+      sanitizeAttachment({
+        attachmentFileName: "notes",
+        attachmentMimeType: "",
+        attachmentDataBase64: fileBase64,
+      })
+    ).toEqual({
+      attachmentFileName: "notes",
+      attachmentMimeType: "application/octet-stream",
+      attachmentDataBase64: fileBase64,
+    });
+  });
+
+  it("rejects incomplete attachments", () => {
     expect(() =>
-      sanitizePdfAttachment({
+      sanitizeAttachment({
         attachmentFileName: "resume.txt",
         attachmentMimeType: "text/plain",
-        attachmentDataBase64: Buffer.from("hello").toString("base64"),
       })
-    ).toThrow("PDF_ATTACHMENT_TYPE");
+    ).toThrow("ATTACHMENT_INCOMPLETE");
   });
 });

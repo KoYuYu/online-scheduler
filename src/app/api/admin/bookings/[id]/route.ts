@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pdfAttachmentErrorMessage, sanitizePdfAttachment } from "@/lib/attachments";
+import { attachmentErrorMessage, sanitizeAttachment } from "@/lib/attachments";
 import { getAdminSession } from "@/lib/auth";
 import { getStore } from "@/lib/storage";
 import type { Booking, BookingInput } from "@/lib/types";
@@ -49,7 +49,7 @@ export async function PATCH(request: NextRequest, context: Params) {
     const attachment = body.clearAttachment
       ? { attachmentFileName: null, attachmentMimeType: null, attachmentDataBase64: null }
       : hasAttachmentInput
-        ? sanitizePdfAttachment(body)
+        ? sanitizeAttachment(body)
         : {};
     const patch: Partial<BookingInput & { status: Booking["status"] }> = { ...attachment };
     if ("source" in body) patch.source = body.source;
@@ -72,9 +72,9 @@ export async function PATCH(request: NextRequest, context: Params) {
     }
     return NextResponse.json({ booking });
   } catch (error) {
-    const pdfMessage = pdfAttachmentErrorMessage(error);
-    if (pdfMessage) {
-      return NextResponse.json({ error: pdfMessage }, { status: 400 });
+    const attachmentMessage = attachmentErrorMessage(error);
+    if (attachmentMessage) {
+      return NextResponse.json({ error: attachmentMessage }, { status: 400 });
     }
     const message = error instanceof Error && error.message === "BOOKING_CONFLICT" ? "這個時段與其他預約衝突。" : "無法更新預約。";
     return NextResponse.json({ error: message }, { status: 409 });
