@@ -396,9 +396,13 @@ button:disabled {
 
 .slot-button.selected {
   color: #ffffff;
-  background: var(--primary);
-  border-color: var(--primary);
-  box-shadow: 0 10px 20px rgba(40, 112, 103, 0.18);
+  background: #0f766e;
+  border-color: #064e48;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 5px rgba(15, 118, 110, 0.34),
+    0 12px 22px rgba(15, 118, 110, 0.24);
+  transform: translateY(-1px);
 }
 
 .slot-button.blocked {
@@ -643,6 +647,55 @@ button:disabled {
 .selected-summary {
   background: var(--primary-soft);
   border-color: #b9d6d0;
+}
+
+.selected-summary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-soft);
+  font-size: 0.88rem;
+  font-weight: 760;
+}
+
+.selected-summary-head strong {
+  color: var(--primary-dark);
+}
+
+.selected-slots-list {
+  display: grid;
+  gap: 8px;
+}
+
+.selected-slot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #ffffff;
+  border: 1px solid #b9d6d0;
+  border-radius: 8px;
+}
+
+.selected-slot-row > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.selected-slot-row strong,
+.selected-slot-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.selected-slot-row span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 690;
 }
 
 .preview-row {
@@ -991,6 +1044,12 @@ button:disabled {
 .dialog-header h2 {
   margin: 3px 0 0;
   font-size: 1.08rem;
+}
+
+.dialog-copy {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.55;
 }
 
 .dialog-actions {

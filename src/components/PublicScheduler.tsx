@@ -50,7 +50,7 @@ export function PublicScheduler() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [slots, setSlots] = useState<PublicSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
-  const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<PublicSlot[]>([]);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
   const [mode, setMode] = useState<"calendar" | "zoom">("calendar");
   const [bookerName, setBookerName] = useState("");
@@ -64,6 +64,7 @@ export function PublicScheduler() {
   const [suggestions, setSuggestions] = useState<PublicSlot[]>([]);
   const [previewAvailable, setPreviewAvailable] = useState<boolean | null>(null);
   const [selectedSourceTimeZone, setSelectedSourceTimeZone] = useState("");
+  const [showMissingZoomConfirm, setShowMissingZoomConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<BookingMessage | null>(null);
   const slotsRequestId = useRef(0);
@@ -94,7 +95,7 @@ export function PublicScheduler() {
     setSlotsLoading(true);
     setSlots([]);
     if (options.clearSelection) {
-      setSelectedSlot(null);
+      setSelectedSlots([]);
     }
 
     try {
@@ -108,7 +109,11 @@ export function PublicScheduler() {
       }
       const nextSlots = data.slots || [];
       setSlots(nextSlots);
-      setSelectedSlot((current) => nextSlots.find((slot) => slot.id === current?.id && slot.status !== "blocked") || null);
+      setSelectedSlots((current) =>
+        current
+          .map((selected) => nextSlots.find((slot) => slot.id === selected.id && slot.status !== "blocked"))
+          .filter((slot): slot is PublicSlot => Boolean(slot))
+      );
     } catch (error) {
       if (requestId === slotsRequestId.current) {
         setMessage({ type: "error", text: error instanceof Error ? error.message : "無法載入可預約時段。" });
@@ -139,6 +144,7 @@ export function PublicScheduler() {
   }, [slots]);
   const availableSlotCount = useMemo(() => slots.filter((slot) => slot.status !== "blocked").length, [slots]);
   const blockedSlotCount = slots.length - availableSlotCount;
+  const selectedSlotIds = useMemo(() => new Set(selectedSlots.map((slot) => slot.id)), [selectedSlots]);
 
   async function requestZoomPreview(sourceTimeZone?: string) {
     setLoading(true);
@@ -195,7 +201,7 @@ export function PublicScheduler() {
       }
       setMessage({ type: "success", text: "預約已確認，這段時間已保留。" });
       setMode("calendar");
-      setSelectedSlot(null);
+      setSelectedSlots([]);
       setPreview(null);
       setPreviewAvailable(null);
       setSuggestions([]);
@@ -213,30 +219,103 @@ export function PublicScheduler() {
     }
   }
 
+  function toggleSlotSelection(slot: PublicSlot) {
+    if (slot.status === "blocked") {
+      return;
+    }
+    setMode("calendar");
+    setExpandedDayKey(slot.dateKey);
+    setMessage(null);
+    setSelectedSlots((current) =>
+      current.some((selected) => selected.id === slot.id)
+        ? current.filter((selected) => selected.id !== slot.id)
+        : [...current, slot].sort(compareSlotsByStart)
+    );
+  }
+
+  function removeSelectedSlot(slotId: string) {
+    setSelectedSlots((current) => current.filter((slot) => slot.id !== slotId));
+  }
+
   function submitManual() {
-    if (!selectedSlot) {
-      setMessage({ type: "error", text: "請先選擇一個可預約時段。" });
+    void submitManualBookings();
+  }
+
+  async function submitManualBookings(options: { allowMissingZoom?: boolean } = {}) {
+    if (!selectedSlots.length) {
+      setMessage({ type: "error", text: "請先選擇至少一個可預約時段。" });
       return;
     }
-    if (selectedSlot.status === "blocked") {
-      setMessage({ type: "error", text: "這個時段已被預約，請改選其他時間。" });
-      setSelectedSlot(null);
+    const blockedSelection = selectedSlots.find((slot) => slot.status === "blocked");
+    if (blockedSelection) {
+      setMessage({ type: "error", text: "已選時段中有時間剛剛被預約，請重新選擇。" });
+      setSelectedSlots((current) => current.filter((slot) => slot.status !== "blocked"));
       return;
     }
-    if (!bookerName.trim() || !zoomJoinUrl.trim()) {
-      setMessage({ type: "error", text: "手動預約需要填寫姓名與 Zoom 連結。" });
+    if (!bookerName.trim()) {
+      setMessage({ type: "error", text: "請填寫姓名。" });
       return;
     }
-    void createBooking({
-      source: "manual",
-      title: "預約會議",
-      startAtUtc: selectedSlot.startAtUtc,
-      endAtUtc: selectedSlot.endAtUtc,
-      bookerName,
-      zoomJoinUrl,
-      notes,
-      ...buildAttachmentPayload(attachments),
-    });
+    if (!zoomJoinUrl.trim() && !options.allowMissingZoom) {
+      setShowMissingZoomConfirm(true);
+      return;
+    }
+
+    setLoading(true);
+    setMessage(null);
+    setShowMissingZoomConfirm(false);
+    const attachmentPayload = buildAttachmentPayload(attachments);
+    const zoomUrl = zoomJoinUrl.trim() || null;
+    let createdCount = 0;
+
+    try {
+      for (const slot of selectedSlots) {
+        const response = await fetch("/api/bookings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: "manual",
+            title: "預約會議",
+            startAtUtc: slot.startAtUtc,
+            endAtUtc: slot.endAtUtc,
+            bookerName,
+            zoomJoinUrl: zoomUrl,
+            notes,
+            ...attachmentPayload,
+          }),
+        });
+        const data = (await response.json()) as { error?: string; suggestions?: PublicSlot[] };
+        if (!response.ok) {
+          setSuggestions(data.suggestions || []);
+          throw new Error(data.error || "預約失敗。");
+        }
+        createdCount += 1;
+      }
+
+      setMessage({
+        type: "success",
+        text:
+          selectedSlots.length > 1
+            ? `已確認 ${selectedSlots.length} 個預約，這些時間已保留。`
+            : "預約已確認，這段時間已保留。",
+      });
+      setMode("calendar");
+      setSelectedSlots([]);
+      setBookerName("");
+      setZoomJoinUrl("");
+      setNotes("");
+      clearAttachments();
+      void loadSlots(weekOffset);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "預約失敗。";
+      setMessage({
+        type: "error",
+        text: createdCount ? `已建立 ${createdCount} 個預約，但後續預約失敗：${detail}` : detail,
+      });
+      void loadSlots(weekOffset);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function submitZoom() {
@@ -296,7 +375,7 @@ export function PublicScheduler() {
   function pickSuggestion(slot: PublicSlot) {
     dismissZoomConfirmation();
     setMode("calendar");
-    setSelectedSlot(slot);
+    setSelectedSlots([slot]);
     setMessage(null);
   }
 
@@ -419,21 +498,15 @@ export function PublicScheduler() {
                     ) : daySlots.length ? (
                       daySlots.map((slot) => {
                         const blocked = slot.status === "blocked";
+                        const selected = selectedSlotIds.has(slot.id);
                         return (
                         <button
-                          className={`slot-button ${selectedSlot?.id === slot.id ? "selected" : ""} ${blocked ? "blocked" : ""}`}
+                          aria-pressed={selected}
+                          className={`slot-button ${selected ? "selected" : ""} ${blocked ? "blocked" : ""}`}
                           disabled={blocked}
                           key={slot.id}
                           type="button"
-                          onClick={() => {
-                            if (blocked) {
-                              return;
-                            }
-                            setMode("calendar");
-                            setSelectedSlot(slot);
-                            setExpandedDayKey(slot.dateKey);
-                            setMessage(null);
-                          }}
+                          onClick={() => toggleSlotSelection(slot)}
                         >
                           <Clock size={15} />
                           <span>
@@ -488,7 +561,7 @@ export function PublicScheduler() {
 
           {mode === "calendar" ? (
             <div className="form-stack">
-              <SelectedSlotSummary slot={selectedSlot} />
+              <SelectedSlotsSummary slots={selectedSlots} onRemove={removeSelectedSlot} />
               <BookingFields
                 bookerName={bookerName}
                 notes={notes}
@@ -506,12 +579,12 @@ export function PublicScheduler() {
               />
               <button
                 className="primary-button"
-                disabled={loading || !selectedSlot || !bookerName.trim() || !zoomJoinUrl.trim()}
+                disabled={loading || !selectedSlots.length || !bookerName.trim()}
                 type="button"
                 onClick={submitManual}
               >
                 <Check size={17} />
-                確認手動預約
+                {selectedSlots.length > 1 ? `確認 ${selectedSlots.length} 個時段` : "確認手動預約"}
               </button>
             </div>
           ) : (
@@ -553,6 +626,14 @@ export function PublicScheduler() {
             onConfirm={submitZoom}
             onPickSuggestion={pickSuggestion}
             onSourceTimeZoneChange={(timeZone) => void confirmSourceTimeZone(timeZone)}
+          />
+        ) : null}
+        {showMissingZoomConfirm ? (
+          <MissingZoomConfirmationDialog
+            loading={loading}
+            slotCount={selectedSlots.length}
+            onCancel={() => setShowMissingZoomConfirm(false)}
+            onConfirm={() => void submitManualBookings({ allowMissingZoom: true })}
           />
         ) : null}
       </section>
@@ -653,25 +734,40 @@ function formatDateKeyLong(ymd: string): string {
   return `${year}年${month}月${day}日`;
 }
 
-function SelectedSlotSummary({ slot }: { slot: PublicSlot | null }) {
-  if (!slot) {
+function compareSlotsByStart(left: PublicSlot, right: PublicSlot): number {
+  return left.startAtUtc.localeCompare(right.startAtUtc);
+}
+
+function SelectedSlotsSummary({ slots, onRemove }: { slots: PublicSlot[]; onRemove: (slotId: string) => void }) {
+  if (!slots.length) {
     return (
       <div className="info-strip muted-strip">
         <AlertCircle size={17} />
-        <span>請先從行事曆選擇一個可預約時段。</span>
+        <span>請先從行事曆選擇一個或多個可預約時段。</span>
       </div>
     );
   }
 
+  const sortedSlots = [...slots].sort(compareSlotsByStart);
+
   return (
     <div className="preview-card selected-summary">
-      <div className="preview-row">
-        <span>日期</span>
-        <strong>{slot.weekdayLabel}, {slot.dateLabel}</strong>
+      <div className="selected-summary-head">
+        <span>已選時段</span>
+        <strong>{slots.length} 個</strong>
       </div>
-      <div className="preview-row">
-        <span>時間</span>
-        <strong>{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc)}</strong>
+      <div className="selected-slots-list">
+        {sortedSlots.map((slot) => (
+          <div className="selected-slot-row" key={slot.id}>
+            <div>
+              <strong>{slot.weekdayLabel}，{slot.dateLabel}</strong>
+              <span>{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc)}</span>
+            </div>
+            <button className="icon-button" title="移除時段" type="button" onClick={() => onRemove(slot.id)}>
+              <X size={16} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -867,6 +963,55 @@ function ZoomConfirmationDialog(props: {
               確認並預約
             </button>
           ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MissingZoomConfirmationDialog(props: {
+  loading: boolean;
+  slotCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={props.onCancel}>
+      <section
+        aria-labelledby="missing-zoom-confirmation-title"
+        aria-modal="true"
+        className="confirmation-dialog"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <span className="section-kicker">手動預約</span>
+            <h2 id="missing-zoom-confirmation-title">未提供 Zoom 連結</h2>
+          </div>
+          <button aria-label="關閉確認視窗" className="icon-button" disabled={props.loading} type="button" onClick={props.onCancel}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="preview-card">
+          <div className="status-line warning">
+            <AlertCircle size={17} />
+            <strong>這次預約沒有 Zoom 連結。</strong>
+          </div>
+          <p className="dialog-copy">
+            系統仍會建立 {props.slotCount} 個預約並封鎖時段，但管理員之後可能需要補上會議連結。
+          </p>
+        </div>
+
+        <div className="dialog-actions">
+          <button className="ghost-button" disabled={props.loading} type="button" onClick={props.onCancel}>
+            返回補連結
+          </button>
+          <button className="primary-button" disabled={props.loading} type="button" onClick={props.onConfirm}>
+            <Check size={17} />
+            仍然送出
+          </button>
         </div>
       </section>
     </div>

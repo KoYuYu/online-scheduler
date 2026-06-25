@@ -1,11 +1,12 @@
-const CACHE_NAME = "online-scheduler-pwa-v1";
+const CACHE_NAME = "online-scheduler-pwa-v2";
 const APP_SHELL_URLS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/icon-maskable-512.png"
+  "/icons/app-icon-fashion-192.png",
+  "/icons/app-icon-fashion-512.png",
+  "/icons/app-icon-fashion-1024.png",
+  "/icons/app-icon-fashion-maskable-512.png"
 ];
 
 self.addEventListener("install", (event) => {

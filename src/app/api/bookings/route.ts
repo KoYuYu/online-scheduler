@@ -61,8 +61,9 @@ export async function POST(request: Request) {
       if (!body.startAtUtc || !body.endAtUtc) {
         return NextResponse.json({ error: "請提供開始與結束時間。" }, { status: 400 });
       }
-      if (!isValidZoomUrl(body.zoomJoinUrl)) {
-        return NextResponse.json({ error: "請提供有效的 Zoom 連結。" }, { status: 400 });
+      const zoomJoinUrl = body.zoomJoinUrl?.trim() || null;
+      if (zoomJoinUrl && !isValidZoomUrl(zoomJoinUrl)) {
+        return NextResponse.json({ error: "Zoom 連結格式不正確。" }, { status: 400 });
       }
       input = {
         source: "manual",
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
         bookerName: body.bookerName.trim(),
         bookerEmail: null,
         notes: body.notes || null,
-        zoomJoinUrl: body.zoomJoinUrl.trim(),
+        zoomJoinUrl,
         attachments,
       };
     }

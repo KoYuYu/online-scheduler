@@ -14,10 +14,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/app-icon-fashion-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/app-icon-fashion-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/app-icon-fashion-1024.png", sizes: "1024x1024", type: "image/png" },
     ],
-    apple: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+    apple: [{ url: "/icons/app-icon-fashion-192.png", sizes: "192x192", type: "image/png" }],
   },
 };
 
