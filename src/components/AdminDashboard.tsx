@@ -61,7 +61,7 @@ type BookingEditFormState = {
 
 export function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  const [email, setEmail] = useState("admin@example.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rules, setRules] = useState<AvailabilityRule[]>([]);
@@ -356,7 +356,6 @@ export function AdminDashboard() {
             </div>
             <div>
               <h1>預約管理後台</h1>
-              <p>本機無 DATABASE_URL 時預設：admin@example.com / password123</p>
             </div>
           </div>
         </div>
