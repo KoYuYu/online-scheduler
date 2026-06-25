@@ -749,6 +749,19 @@ button:disabled {
   gap: 10px;
 }
 
+.card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+}
+
+.card-actions .icon-button:first-child:hover:not(:disabled) {
+  color: var(--primary-dark);
+  background: var(--primary-soft);
+  border-color: #b9d6d0;
+}
+
 .booking-main {
   min-width: 0;
 }
@@ -789,6 +802,63 @@ button:disabled {
   flex-wrap: wrap;
   margin-top: 10px;
   overflow-wrap: anywhere;
+}
+
+.note-line {
+  margin-top: 10px;
+  padding: 9px 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.edit-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.compact-textarea {
+  min-height: 86px;
+}
+
+.attachment-manager {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.attachment-row span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-soft);
+  font-weight: 680;
+}
+
+.attachment-row a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.edit-actions {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(160px, 1.2fr);
+  gap: 10px;
 }
 
 .rule-card {
@@ -952,6 +1022,20 @@ button:disabled {
   }
 
   .segmented-control {
+    grid-template-columns: 1fr;
+  }
+
+  .attachment-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .attachment-row .ghost-button,
+  .edit-actions {
+    width: 100%;
+  }
+
+  .edit-actions {
     grid-template-columns: 1fr;
   }
 }

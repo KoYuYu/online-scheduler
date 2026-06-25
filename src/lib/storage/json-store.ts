@@ -216,7 +216,18 @@ export class JsonStore {
     if (index < 0) {
       return null;
     }
-    data.bookings[index] = normalizeBooking({ ...data.bookings[index], ...input, id, updatedAt: nowIso() });
+    const merged = normalizeBooking({ ...data.bookings[index], ...input, id, updatedAt: nowIso() });
+    const conflict = data.bookings.find(
+      (booking) =>
+        booking.id !== id &&
+        merged.status !== "cancelled" &&
+        booking.status !== "cancelled" &&
+        overlaps(merged.startAtUtc, merged.endAtUtc, booking.startAtUtc, booking.endAtUtc)
+    );
+    if (conflict) {
+      throw new Error("BOOKING_CONFLICT");
+    }
+    data.bookings[index] = merged;
     await writeData(data);
     return data.bookings[index];
   }

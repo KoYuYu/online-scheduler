@@ -209,40 +209,66 @@ export class PostgresStore {
   }
 
   async updateBooking(id: string, input: Partial<BookingInput & { status: Booking["status"] }>): Promise<Booking | null> {
-    const current = await this.pool.query("SELECT * FROM bookings WHERE id = $1", [id]);
-    if (!current.rowCount) {
-      return null;
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+      const current = await client.query("SELECT * FROM bookings WHERE id = $1 FOR UPDATE", [id]);
+      if (!current.rowCount) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      const merged = { ...mapBooking(current.rows[0]), ...input };
+      const conflict =
+        merged.status === "cancelled"
+          ? { rowCount: 0 }
+          : await client.query(
+              `SELECT id FROM bookings
+               WHERE id <> $3
+                 AND status <> 'cancelled'
+                 AND start_at_utc < $2::timestamptz
+                 AND end_at_utc > $1::timestamptz
+               LIMIT 1`,
+              [merged.startAtUtc, merged.endAtUtc, id]
+            );
+      if (conflict.rowCount) {
+        throw new Error("BOOKING_CONFLICT");
+      }
+      const result = await client.query(
+        `UPDATE bookings
+         SET source = $2, title = $3, start_at_utc = $4::timestamptz, end_at_utc = $5::timestamptz,
+             booker_name = $6, booker_email = $7, notes = $8, invited_by_name = $9, zoom_join_url = $10,
+             meeting_id = $11, passcode = $12, raw_invite_text = $13, attachment_file_name = $14,
+             attachment_mime_type = $15, attachment_data = $16, status = $17, updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          id,
+          merged.source,
+          merged.title,
+          merged.startAtUtc,
+          merged.endAtUtc,
+          merged.bookerName,
+          merged.bookerEmail,
+          merged.notes,
+          merged.invitedByName,
+          merged.zoomJoinUrl,
+          merged.meetingId,
+          merged.passcode,
+          merged.rawInviteText,
+          merged.attachmentFileName,
+          merged.attachmentMimeType,
+          merged.attachmentDataBase64 ? Buffer.from(merged.attachmentDataBase64, "base64") : null,
+          merged.status,
+        ]
+      );
+      await client.query("COMMIT");
+      return mapBooking(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
-    const merged = { ...mapBooking(current.rows[0]), ...input };
-    const result = await this.pool.query(
-      `UPDATE bookings
-       SET source = $2, title = $3, start_at_utc = $4::timestamptz, end_at_utc = $5::timestamptz,
-           booker_name = $6, booker_email = $7, notes = $8, invited_by_name = $9, zoom_join_url = $10,
-           meeting_id = $11, passcode = $12, raw_invite_text = $13, attachment_file_name = $14,
-           attachment_mime_type = $15, attachment_data = $16, status = $17, updated_at = now()
-       WHERE id = $1
-       RETURNING *`,
-      [
-        id,
-        merged.source,
-        merged.title,
-        merged.startAtUtc,
-        merged.endAtUtc,
-        merged.bookerName,
-        merged.bookerEmail,
-        merged.notes,
-        merged.invitedByName,
-        merged.zoomJoinUrl,
-        merged.meetingId,
-        merged.passcode,
-        merged.rawInviteText,
-        merged.attachmentFileName,
-        merged.attachmentMimeType,
-        merged.attachmentDataBase64 ? Buffer.from(merged.attachmentDataBase64, "base64") : null,
-        merged.status,
-      ]
-    );
-    return mapBooking(result.rows[0]);
   }
 
   async deleteBooking(id: string): Promise<boolean> {

@@ -8,16 +8,21 @@ import {
   Link,
   LogIn,
   LogOut,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
   Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { addMinutes, localYmdTimeToUtc } from "@/lib/time";
 import type { AvailabilityRule, Booking, ParsedZoomInvite } from "@/lib/types";
 
 const weekdays = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
+const maxPdfBytes = 5 * 1024 * 1024;
 const startTimeOptions = [
   { value: "10:00", label: "早上 10:00" },
   { value: "13:00", label: "下午 1:00" },
@@ -36,6 +41,24 @@ const endTimeOptions = [
   { value: "24:00", label: "凌晨 12:00" },
 ];
 
+type BookingEditFormState = {
+  source: Booking["source"];
+  title: string;
+  startLocal: string;
+  endLocal: string;
+  bookerName: string;
+  notes: string;
+  invitedByName: string;
+  zoomJoinUrl: string;
+  meetingId: string;
+  passcode: string;
+  rawInviteText: string;
+  status: Booking["status"];
+  attachmentFileName: string | null;
+  attachmentMimeType: string | null;
+  attachmentDataBase64: string | null;
+};
+
 export function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [email, setEmail] = useState("admin@example.com");
@@ -47,6 +70,11 @@ export function AdminDashboard() {
   const [zoomPreview, setZoomPreview] = useState<ParsedZoomInvite | null>(null);
   const [adminName, setAdminName] = useState("");
   const [newRule, setNewRule] = useState({ weekday: 1, startTimeLocal: "20:00", endTimeLocal: "24:00" });
+  const [editingBookingId, setEditingBookingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<BookingEditFormState | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editAttachmentError, setEditAttachmentError] = useState<string | null>(null);
+  const [editFileInputKey, setEditFileInputKey] = useState(0);
 
   async function loadSession() {
     const response = await fetch("/api/admin/session", { cache: "no-store" });
@@ -157,6 +185,133 @@ export function AdminDashboard() {
   async function deleteBooking(id: string) {
     await fetch(`/api/admin/bookings/${id}`, { method: "DELETE" });
     await loadCalendar();
+  }
+
+  function startEditingBooking(booking: Booking) {
+    setMessage(null);
+    setEditingBookingId(booking.id);
+    setEditForm(bookingToEditForm(booking));
+    setEditAttachmentError(null);
+    setEditFileInputKey((current) => current + 1);
+  }
+
+  function cancelEditingBooking() {
+    setEditingBookingId(null);
+    setEditForm(null);
+    setEditAttachmentError(null);
+    setEditSaving(false);
+  }
+
+  function updateEditForm(patch: Partial<BookingEditFormState>) {
+    setEditForm((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  function handleEditStartChange(value: string) {
+    if (!editForm) {
+      return;
+    }
+    try {
+      const durationMinutes = getEditDurationMinutes(editForm);
+      const startUtc = datetimeLocalToEasternUtcIso(value);
+      const nextEndLocal = easternDatetimeLocalFromIso(addMinutes(new Date(startUtc), durationMinutes).toISOString());
+      updateEditForm({ startLocal: value, endLocal: nextEndLocal });
+    } catch {
+      updateEditForm({ startLocal: value });
+    }
+  }
+
+  async function handleEditPdfChange(file: File | undefined) {
+    setEditAttachmentError(null);
+    if (!file) {
+      return;
+    }
+    if ((file.type && file.type !== "application/pdf") || !file.name.toLowerCase().endsWith(".pdf")) {
+      setEditAttachmentError("附件只支援 PDF 檔案。");
+      setEditFileInputKey((current) => current + 1);
+      return;
+    }
+    if (file.size > maxPdfBytes) {
+      setEditAttachmentError("PDF 附件不可超過 5MB。");
+      setEditFileInputKey((current) => current + 1);
+      return;
+    }
+
+    try {
+      const dataBase64 = await readFileAsBase64(file);
+      updateEditForm({
+        attachmentFileName: file.name,
+        attachmentMimeType: "application/pdf",
+        attachmentDataBase64: dataBase64,
+      });
+    } catch {
+      setEditAttachmentError("PDF 讀取失敗，請重新上傳。");
+      setEditFileInputKey((current) => current + 1);
+    }
+  }
+
+  function clearEditAttachment() {
+    updateEditForm({
+      attachmentFileName: null,
+      attachmentMimeType: null,
+      attachmentDataBase64: null,
+    });
+    setEditAttachmentError(null);
+    setEditFileInputKey((current) => current + 1);
+  }
+
+  async function saveBookingEdit(id: string) {
+    if (!editForm) {
+      return;
+    }
+    setMessage(null);
+    setEditSaving(true);
+    try {
+      if (!editForm.title.trim()) {
+        setMessage("請填寫主題。");
+        return;
+      }
+      const startAtUtc = datetimeLocalToEasternUtcIso(editForm.startLocal);
+      const endAtUtc = datetimeLocalToEasternUtcIso(editForm.endLocal);
+      if (new Date(startAtUtc).getTime() >= new Date(endAtUtc).getTime()) {
+        setMessage("結束時間必須晚於開始時間。");
+        return;
+      }
+      const response = await fetch(`/api/admin/bookings/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: editForm.source,
+          title: editForm.title,
+          startAtUtc,
+          endAtUtc,
+          bookerName: editForm.bookerName,
+          bookerEmail: null,
+          notes: editForm.notes,
+          invitedByName: editForm.invitedByName,
+          zoomJoinUrl: editForm.zoomJoinUrl,
+          meetingId: editForm.meetingId,
+          passcode: editForm.passcode,
+          rawInviteText: editForm.rawInviteText,
+          status: editForm.status,
+          clearAttachment: !editForm.attachmentFileName,
+          attachmentFileName: editForm.attachmentFileName,
+          attachmentMimeType: editForm.attachmentMimeType,
+          attachmentDataBase64: editForm.attachmentDataBase64,
+        }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setMessage(data.error || "無法更新預約。");
+        return;
+      }
+      cancelEditingBooking();
+      setMessage("預約已更新。");
+      await loadCalendar();
+    } catch {
+      setMessage("時間或附件資料不正確，請重新確認。");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   async function createRule() {
@@ -281,15 +436,22 @@ export function AdminDashboard() {
                         <span>{formatBookingWindow(booking)}</span>
                       </div>
                     </div>
-                    <button className="icon-button" title="刪除預約" type="button" onClick={() => void deleteBooking(booking.id)}>
-                      <Trash2 size={16} />
-                    </button>
+                    <div className="card-actions">
+                      <button className="icon-button" title="編輯預約" type="button" onClick={() => startEditingBooking(booking)}>
+                        <Pencil size={16} />
+                      </button>
+                      <button className="icon-button" title="刪除預約" type="button" onClick={() => void deleteBooking(booking.id)}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </header>
                   <div className="booking-meta">
                     <span>{booking.bookerName || "未提供姓名"}</span>
                     {booking.invitedByName ? <span>邀請人：{booking.invitedByName}</span> : null}
                     <span>{formatSourceLabel(booking.source)}</span>
+                    {booking.status === "cancelled" ? <span>已取消</span> : null}
                   </div>
+                  {booking.notes ? <p className="muted note-line">備註：{booking.notes}</p> : null}
                   {booking.zoomJoinUrl ? (
                     <p className="muted link-line">
                       <Link size={14} />
@@ -303,6 +465,20 @@ export function AdminDashboard() {
                       <FileText size={14} />
                       <a href={buildPdfDataUrl(booking)} download={booking.attachmentFileName}>下載 PDF：{booking.attachmentFileName}</a>
                     </p>
+                  ) : null}
+                  {editingBookingId === booking.id && editForm ? (
+                    <BookingEditFields
+                      attachmentError={editAttachmentError}
+                      fileInputKey={editFileInputKey}
+                      form={editForm}
+                      saving={editSaving}
+                      onCancel={cancelEditingBooking}
+                      onChange={updateEditForm}
+                      onFileChange={(file) => void handleEditPdfChange(file)}
+                      onRemoveAttachment={clearEditAttachment}
+                      onSave={() => void saveBookingEdit(booking.id)}
+                      onStartChange={handleEditStartChange}
+                    />
                   ) : null}
                 </article>
               ))
@@ -397,6 +573,153 @@ export function AdminDashboard() {
   );
 }
 
+function BookingEditFields({
+  attachmentError,
+  fileInputKey,
+  form,
+  saving,
+  onCancel,
+  onChange,
+  onFileChange,
+  onRemoveAttachment,
+  onSave,
+  onStartChange,
+}: {
+  attachmentError: string | null;
+  fileInputKey: number;
+  form: BookingEditFormState;
+  saving: boolean;
+  onCancel: () => void;
+  onChange: (patch: Partial<BookingEditFormState>) => void;
+  onFileChange: (file: File | undefined) => void;
+  onRemoveAttachment: () => void;
+  onSave: () => void;
+  onStartChange: (value: string) => void;
+}) {
+  return (
+    <div className="edit-form">
+      <div className="form-grid two">
+        <label className="field">
+          <span>主題</span>
+          <input value={form.title} onChange={(event) => onChange({ title: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>狀態</span>
+          <select value={form.status} onChange={(event) => onChange({ status: event.target.value as Booking["status"] })}>
+            <option value="confirmed">已確認</option>
+            <option value="cancelled">已取消</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="form-grid two">
+        <label className="field">
+          <span>開始時間（美東）</span>
+          <input type="datetime-local" value={form.startLocal} onChange={(event) => onStartChange(event.target.value)} />
+        </label>
+        <label className="field">
+          <span>結束時間（美東）</span>
+          <input type="datetime-local" value={form.endLocal} onChange={(event) => onChange({ endLocal: event.target.value })} />
+        </label>
+      </div>
+
+      <div className="form-grid two">
+        <label className="field">
+          <span>姓名</span>
+          <input value={form.bookerName} onChange={(event) => onChange({ bookerName: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>來源</span>
+          <select value={form.source} onChange={(event) => onChange({ source: event.target.value as Booking["source"] })}>
+            <option value="manual">手動預約</option>
+            <option value="zoom">Zoom 預約</option>
+            <option value="admin">管理員新增</option>
+            <option value="admin_zoom">管理員匯入 Zoom</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="field">
+        <span>Zoom 連結</span>
+        <input value={form.zoomJoinUrl} onChange={(event) => onChange({ zoomJoinUrl: event.target.value })} />
+      </label>
+
+      <div className="form-grid two">
+        <label className="field">
+          <span>會議號</span>
+          <input value={form.meetingId} onChange={(event) => onChange({ meetingId: event.target.value })} />
+        </label>
+        <label className="field">
+          <span>密碼</span>
+          <input value={form.passcode} onChange={(event) => onChange({ passcode: event.target.value })} />
+        </label>
+      </div>
+
+      <label className="field">
+        <span>邀請人</span>
+        <input value={form.invitedByName} onChange={(event) => onChange({ invitedByName: event.target.value })} />
+      </label>
+
+      <label className="field">
+        <span>管理備註</span>
+        <textarea className="compact-textarea" value={form.notes} onChange={(event) => onChange({ notes: event.target.value })} />
+      </label>
+
+      <label className="field">
+        <span>原始邀請內容</span>
+        <textarea
+          className="compact-textarea"
+          value={form.rawInviteText}
+          onChange={(event) => onChange({ rawInviteText: event.target.value })}
+        />
+      </label>
+
+      <div className="attachment-manager">
+        {form.attachmentFileName && form.attachmentDataBase64 ? (
+          <div className="attachment-row">
+            <span>
+              <FileText size={15} />
+              <a href={buildPdfDataUrl(form)} download={form.attachmentFileName}>
+                {form.attachmentFileName}
+              </a>
+            </span>
+            <button className="ghost-button compact-button" type="button" onClick={onRemoveAttachment}>
+              <X size={15} />
+              移除
+            </button>
+          </div>
+        ) : (
+          <p className="field-help">目前沒有附件。</p>
+        )}
+        <label className="field">
+          <span>上傳或替換 PDF</span>
+          <div className="input-with-icon">
+            <Upload size={15} />
+            <input
+              key={fileInputKey}
+              accept="application/pdf,.pdf"
+              type="file"
+              onChange={(event) => onFileChange(event.target.files?.[0])}
+            />
+          </div>
+        </label>
+        {attachmentError ? <p className="field-error">{attachmentError}</p> : null}
+      </div>
+
+      <div className="edit-actions">
+        <button className="ghost-button" disabled={saving} type="button" onClick={onCancel}>
+          <X size={16} />
+          取消
+        </button>
+        <button className="primary-button" disabled={saving} type="button" onClick={onSave}>
+          <Save size={16} />
+          儲存變更
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdminZoomPreview({ preview }: { preview: ParsedZoomInvite }) {
   return (
     <div className="preview-card">
@@ -409,6 +732,71 @@ function AdminZoomPreview({ preview }: { preview: ParsedZoomInvite }) {
       </div>
     </div>
   );
+}
+
+function bookingToEditForm(booking: Booking): BookingEditFormState {
+  return {
+    source: booking.source,
+    title: booking.title,
+    startLocal: easternDatetimeLocalFromIso(booking.startAtUtc),
+    endLocal: easternDatetimeLocalFromIso(booking.endAtUtc),
+    bookerName: booking.bookerName || "",
+    notes: booking.notes || "",
+    invitedByName: booking.invitedByName || "",
+    zoomJoinUrl: booking.zoomJoinUrl || "",
+    meetingId: booking.meetingId || "",
+    passcode: booking.passcode || "",
+    rawInviteText: booking.rawInviteText || "",
+    status: booking.status,
+    attachmentFileName: booking.attachmentFileName,
+    attachmentMimeType: booking.attachmentMimeType,
+    attachmentDataBase64: booking.attachmentDataBase64,
+  };
+}
+
+function easternDatetimeLocalFromIso(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(iso));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+}
+
+function datetimeLocalToEasternUtcIso(value: string): string {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})$/);
+  if (!match) {
+    throw new Error("INVALID_DATETIME_LOCAL");
+  }
+  return localYmdTimeToUtc(match[1], match[2], "America/New_York").toISOString();
+}
+
+function getEditDurationMinutes(form: BookingEditFormState): number {
+  try {
+    const start = new Date(datetimeLocalToEasternUtcIso(form.startLocal)).getTime();
+    const end = new Date(datetimeLocalToEasternUtcIso(form.endLocal)).getTime();
+    const duration = Math.round((end - start) / 60_000);
+    return duration > 0 ? duration : 60;
+  } catch {
+    return 60;
+  }
+}
+
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      resolve(result.includes(",") ? result.split(",").pop() || "" : result);
+    };
+    reader.onerror = () => reject(new Error("PDF_READ_FAILED"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function formatBookingWindow(booking: Pick<Booking, "startAtUtc" | "endAtUtc">): string {
@@ -438,8 +826,8 @@ function formatSourceLabel(source: Booking["source"]): string {
   return labels[source] || source;
 }
 
-function buildPdfDataUrl(booking: Booking): string {
-  return `data:${booking.attachmentMimeType || "application/pdf"};base64,${booking.attachmentDataBase64 || ""}`;
+function buildPdfDataUrl(attachment: Pick<Booking, "attachmentMimeType" | "attachmentDataBase64">): string {
+  return `data:${attachment.attachmentMimeType || "application/pdf"};base64,${attachment.attachmentDataBase64 || ""}`;
 }
 
 function minutesFromTime(value: string): number {
