@@ -4,6 +4,7 @@ import {
   AlertCircle,
   CalendarCheck,
   CalendarDays,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -50,6 +51,7 @@ export function PublicScheduler() {
   const [slots, setSlots] = useState<PublicSlot[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<PublicSlot | null>(null);
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
   const [mode, setMode] = useState<"calendar" | "zoom">("calendar");
   const [bookerName, setBookerName] = useState("");
   const [zoomJoinUrl, setZoomJoinUrl] = useState("");
@@ -121,6 +123,10 @@ export function PublicScheduler() {
   useEffect(() => {
     void loadSlots(weekOffset, { clearSelection: true });
   }, [weekOffset]);
+
+  useEffect(() => {
+    setExpandedDayKey(null);
+  }, [weekRange.fromYmd]);
 
   const slotsByDate = useMemo(() => {
     const groups = new Map<string, PublicSlot[]>();
@@ -384,15 +390,29 @@ export function PublicScheduler() {
           <div className="calendar-grid">
             {weekDays.map((day) => {
               const daySlots = slotsByDate.get(day.dateKey) || [];
+              const availableCount = daySlots.filter((slot) => slot.status !== "blocked").length;
+              const blockedCount = daySlots.length - availableCount;
+              const expanded = expandedDayKey === day.dateKey;
               return (
-                <div className={`day-column ${day.isToday ? "today" : ""}`} key={day.dateKey}>
-                  <div className="day-head">
-                    <div className="day-head-title">
-                      <strong>{day.weekdayLabel}</strong>
-                      {day.isToday ? <span className="today-chip">今天</span> : null}
+                <div className={`day-column ${day.isToday ? "today" : ""} ${expanded ? "expanded" : ""}`} key={day.dateKey}>
+                  <button
+                    aria-expanded={expanded}
+                    className="day-head"
+                    type="button"
+                    onClick={() => setExpandedDayKey((current) => (current === day.dateKey ? null : day.dateKey))}
+                  >
+                    <div className="day-head-main">
+                      <div className="day-head-title">
+                        <strong>{day.weekdayLabel}</strong>
+                        {day.isToday ? <span className="today-chip">今天</span> : null}
+                      </div>
+                      <span>{day.dateLabel}</span>
                     </div>
-                    <span>{day.dateLabel}</span>
-                  </div>
+                    <span className="day-slot-summary">
+                      {slotsLoading ? "載入中" : daySlots.length ? `${availableCount} 可約${blockedCount ? ` / ${blockedCount} 已約` : ""}` : "無時段"}
+                    </span>
+                    <ChevronDown className="day-toggle-icon" size={16} />
+                  </button>
                   <div className="slot-list">
                     {slotsLoading ? (
                       <div className="no-slots">載入中...</div>
@@ -411,6 +431,7 @@ export function PublicScheduler() {
                             }
                             setMode("calendar");
                             setSelectedSlot(slot);
+                            setExpandedDayKey(slot.dateKey);
                             setMessage(null);
                           }}
                         >
