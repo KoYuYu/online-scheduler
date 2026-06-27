@@ -2,6 +2,7 @@
 
 import {
   CalendarDays,
+  ChevronDown,
   Clock,
   ClipboardPaste,
   FileText,
@@ -75,6 +76,7 @@ export function AdminDashboard() {
   const [editSaving, setEditSaving] = useState(false);
   const [editAttachmentError, setEditAttachmentError] = useState<string | null>(null);
   const [editFileInputKey, setEditFileInputKey] = useState(0);
+  const [pastBookingsExpanded, setPastBookingsExpanded] = useState(false);
 
   async function loadSession() {
     const response = await fetch("/api/admin/session", { cache: "no-store" });
@@ -358,6 +360,71 @@ export function AdminDashboard() {
     await loadCalendar();
   }
 
+  function renderBookingCard(booking: Booking, options: { past?: boolean } = {}) {
+    return (
+      <article className={`booking-card ${options.past ? "past-booking" : ""}`} key={booking.id}>
+        <header>
+          <div className="booking-main">
+            <h3>{booking.title}</h3>
+            <div className="booking-time">
+              <Clock size={15} />
+              <span>{formatBookingWindow(booking)}</span>
+            </div>
+          </div>
+          <div className="card-actions">
+            <button className="icon-button" title="編輯預約" type="button" onClick={() => startEditingBooking(booking)}>
+              <Pencil size={16} />
+            </button>
+            <button className="icon-button" title="刪除預約" type="button" onClick={() => void deleteBooking(booking.id)}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        </header>
+        <div className="booking-meta">
+          <span>{booking.bookerName || "未提供姓名"}</span>
+          {booking.invitedByName ? <span>邀請人：{booking.invitedByName}</span> : null}
+          <span>{formatSourceLabel(booking.source)}</span>
+          {options.past ? <span>歷史</span> : null}
+          {booking.status === "cancelled" ? <span>已取消</span> : null}
+        </div>
+        {booking.notes ? <p className="muted note-line">備註：{booking.notes}</p> : null}
+        {booking.zoomJoinUrl ? (
+          <p className="muted link-line">
+            <Link size={14} />
+            <a href={booking.zoomJoinUrl} rel="noreferrer" target="_blank">Zoom 連結</a>
+            {booking.meetingId ? <span>{booking.meetingId}</span> : null}
+            {booking.passcode ? <span>{booking.passcode}</span> : null}
+          </p>
+        ) : null}
+        {booking.attachments.length ? (
+          <div className="attachment-list">
+            {booking.attachments.map((attachment) => (
+              <a className="attachment-link" href={buildAttachmentDataUrl(attachment)} download={attachment.fileName} key={attachment.id}>
+                <FileText size={14} />
+                下載附件：{attachment.fileName}
+              </a>
+            ))}
+          </div>
+        ) : null}
+        {editingBookingId === booking.id && editForm ? (
+          <BookingEditFields
+            attachmentError={editAttachmentError}
+            fileInputKey={editFileInputKey}
+            form={editForm}
+            saving={editSaving}
+            onCancel={cancelEditingBooking}
+            onChange={updateEditForm}
+            onFileChange={(files) => void handleEditAttachmentChange(files)}
+            onRemoveExistingAttachment={removeExistingEditAttachment}
+            onRemovePendingAttachment={removePendingEditAttachment}
+            onSave={() => void saveBookingEdit(booking.id)}
+            onStartChange={handleEditStartChange}
+          />
+        ) : null}
+      </article>
+    );
+  }
+
   if (authenticated === null) {
     return (
       <main className="app-shell">
@@ -409,6 +476,8 @@ export function AdminDashboard() {
     );
   }
 
+  const { activeBookings, pastBookings } = splitBookingsByTime(bookings);
+
   return (
     <main className="app-shell admin-shell">
       <div className="topbar compact">
@@ -439,76 +508,45 @@ export function AdminDashboard() {
             <div>
               <span className="section-kicker">營運行事曆</span>
               <h2 id="admin-calendar-heading">預約列表</h2>
-              <p className="muted">已確認的會議、匯入的 Zoom 連結與手動預約。</p>
+              <p className="muted">目前與未來預約會優先顯示，過去預約收在歷史區塊。</p>
             </div>
-            <span className="pill">{bookings.length} 筆預約</span>
+            <span className="pill">{activeBookings.length} 目前 / {pastBookings.length} 歷史</span>
           </div>
           <div className="booking-list">
-            {bookings.length ? (
-              bookings.map((booking) => (
-                <article className="booking-card" key={booking.id}>
-                  <header>
-                    <div className="booking-main">
-                      <h3>{booking.title}</h3>
-                      <div className="booking-time">
-                        <Clock size={15} />
-                        <span>{formatBookingWindow(booking)}</span>
-                      </div>
-                    </div>
-                    <div className="card-actions">
-                      <button className="icon-button" title="編輯預約" type="button" onClick={() => startEditingBooking(booking)}>
-                        <Pencil size={16} />
-                      </button>
-                      <button className="icon-button" title="刪除預約" type="button" onClick={() => void deleteBooking(booking.id)}>
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </header>
-                  <div className="booking-meta">
-                    <span>{booking.bookerName || "未提供姓名"}</span>
-                    {booking.invitedByName ? <span>邀請人：{booking.invitedByName}</span> : null}
-                    <span>{formatSourceLabel(booking.source)}</span>
-                    {booking.status === "cancelled" ? <span>已取消</span> : null}
+            {activeBookings.length ? (
+              <section className="booking-section" aria-label="目前與未來預約">
+                <div className="booking-section-head">
+                  <div>
+                    <span className="section-kicker">目前與未來</span>
+                    <strong>{activeBookings.length} 筆</strong>
                   </div>
-                  {booking.notes ? <p className="muted note-line">備註：{booking.notes}</p> : null}
-                  {booking.zoomJoinUrl ? (
-                    <p className="muted link-line">
-                      <Link size={14} />
-                      <a href={booking.zoomJoinUrl} rel="noreferrer" target="_blank">Zoom 連結</a>
-                      {booking.meetingId ? <span>{booking.meetingId}</span> : null}
-                      {booking.passcode ? <span>{booking.passcode}</span> : null}
-                    </p>
-                  ) : null}
-                  {booking.attachments.length ? (
-                    <div className="attachment-list">
-                      {booking.attachments.map((attachment) => (
-                        <a className="attachment-link" href={buildAttachmentDataUrl(attachment)} download={attachment.fileName} key={attachment.id}>
-                          <FileText size={14} />
-                          下載附件：{attachment.fileName}
-                        </a>
-                      ))}
-                    </div>
-                  ) : null}
-                  {editingBookingId === booking.id && editForm ? (
-                    <BookingEditFields
-                      attachmentError={editAttachmentError}
-                      fileInputKey={editFileInputKey}
-                      form={editForm}
-                      saving={editSaving}
-                      onCancel={cancelEditingBooking}
-                      onChange={updateEditForm}
-                      onFileChange={(files) => void handleEditAttachmentChange(files)}
-                      onRemoveExistingAttachment={removeExistingEditAttachment}
-                      onRemovePendingAttachment={removePendingEditAttachment}
-                      onSave={() => void saveBookingEdit(booking.id)}
-                      onStartChange={handleEditStartChange}
-                    />
-                  ) : null}
-                </article>
-              ))
+                </div>
+                {activeBookings.map((booking) => renderBookingCard(booking))}
+              </section>
             ) : (
-              <div className="empty-state">目前沒有預約</div>
+              <div className="empty-state">目前沒有進行中或未來預約</div>
             )}
+            {pastBookings.length ? (
+              <section className={`booking-history ${pastBookingsExpanded ? "expanded" : ""}`} aria-label="歷史預約">
+                <button
+                  aria-expanded={pastBookingsExpanded}
+                  className="history-toggle"
+                  type="button"
+                  onClick={() => setPastBookingsExpanded((current) => !current)}
+                >
+                  <div>
+                    <span className="section-kicker">歷史預約</span>
+                    <strong>{pastBookings.length} 筆過去預約</strong>
+                  </div>
+                  <ChevronDown className="history-toggle-icon" size={18} />
+                </button>
+                {pastBookingsExpanded ? (
+                  <div className="booking-history-list">
+                    {pastBookings.map((booking) => renderBookingCard(booking, { past: true }))}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
           </div>
         </section>
 
@@ -772,6 +810,33 @@ function AdminZoomPreview({ preview }: { preview: ParsedZoomInvite }) {
       </div>
     </div>
   );
+}
+
+function splitBookingsByTime(bookings: Booking[]): { activeBookings: Booking[]; pastBookings: Booking[] } {
+  const now = Date.now();
+  const activeBookings: Booking[] = [];
+  const pastBookings: Booking[] = [];
+
+  for (const booking of bookings) {
+    if (new Date(booking.endAtUtc).getTime() < now) {
+      pastBookings.push(booking);
+    } else {
+      activeBookings.push(booking);
+    }
+  }
+
+  return {
+    activeBookings: activeBookings.sort(compareBookingStartAscending),
+    pastBookings: pastBookings.sort(compareBookingStartDescending),
+  };
+}
+
+function compareBookingStartAscending(left: Booking, right: Booking): number {
+  return new Date(left.startAtUtc).getTime() - new Date(right.startAtUtc).getTime();
+}
+
+function compareBookingStartDescending(left: Booking, right: Booking): number {
+  return new Date(right.startAtUtc).getTime() - new Date(left.startAtUtc).getTime();
 }
 
 function bookingToEditForm(booking: Booking): BookingEditFormState {

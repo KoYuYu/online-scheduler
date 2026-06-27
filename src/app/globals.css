@@ -811,6 +811,61 @@ button:disabled {
   gap: 10px;
 }
 
+.booking-section,
+.booking-history,
+.booking-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.booking-section-head,
+.history-toggle {
+  min-width: 0;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.booking-section-head > div,
+.history-toggle > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.booking-section-head strong,
+.history-toggle strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.history-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: inherit;
+  cursor: pointer;
+}
+
+.history-toggle:hover,
+.history-toggle:focus-visible {
+  border-color: #b9d6d0;
+  background: #f3faf8;
+}
+
+.history-toggle-icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 140ms ease;
+}
+
+.booking-history.expanded .history-toggle-icon {
+  transform: rotate(180deg);
+}
+
 .booking-card,
 .rule-card {
   min-width: 0;
@@ -818,6 +873,16 @@ button:disabled {
   border-radius: 8px;
   padding: 12px;
   background: #ffffff;
+}
+
+.booking-card.past-booking {
+  background: #fbfcfd;
+  border-color: #d8e1ea;
+}
+
+.booking-card.past-booking .booking-time,
+.booking-card.past-booking .booking-meta {
+  color: var(--muted);
 }
 
 .booking-card header,
