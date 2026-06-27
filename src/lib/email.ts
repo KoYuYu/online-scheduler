@@ -5,9 +5,14 @@ import type { Booking } from "@/lib/types";
 import { formatEtTimeLabel } from "@/lib/time";
 
 type NotificationResult = { sent: boolean; reason?: string };
+type NotificationKind = "created" | "reminder24h";
 
-function getBookingNotificationText(booking: Booking): string {
-  return [
+function getSubject(booking: Booking, kind: NotificationKind): string {
+  return kind === "reminder24h" ? `24 小時預約提醒：${booking.title}` : `新預約：${booking.title}`;
+}
+
+function getBookingNotificationText(booking: Booking, kind: NotificationKind): string {
+  const lines = [
     `主題：${booking.title}`,
     `時間：${formatEtTimeLabel(booking.startAtUtc, booking.endAtUtc)}`,
     `預約者：${booking.bookerName || "未提供"}`,
@@ -17,7 +22,13 @@ function getBookingNotificationText(booking: Booking): string {
     `密碼：${booking.passcode || ""}`,
     `附件：${booking.attachments.length ? booking.attachments.map((attachment) => attachment.fileName).join(", ") : "無"}`,
     `備註：${booking.notes || ""}`,
-  ].join("\n");
+  ];
+
+  if (kind === "reminder24h") {
+    return ["提醒：此預約將在 24 小時內開始。", "", ...lines].join("\n");
+  }
+
+  return lines.join("\n");
 }
 
 function getAttachments(booking: Booking) {
@@ -28,7 +39,7 @@ function getAttachments(booking: Booking) {
   }));
 }
 
-async function sendWithResend(booking: Booking, apiKey: string, to: string): Promise<NotificationResult> {
+async function sendWithResend(booking: Booking, apiKey: string, to: string, kind: NotificationKind): Promise<NotificationResult> {
   const attachments = getAttachments(booking);
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -39,8 +50,8 @@ async function sendWithResend(booking: Booking, apiKey: string, to: string): Pro
     body: JSON.stringify({
       from: process.env.RESEND_FROM_EMAIL || "Online Scheduler <onboarding@resend.dev>",
       to: [to],
-      subject: `新預約：${booking.title}`,
-      text: getBookingNotificationText(booking),
+      subject: getSubject(booking, kind),
+      text: getBookingNotificationText(booking, kind),
       attachments: attachments.length
         ? attachments.map((attachment) => ({ filename: attachment.filename, content: attachment.content }))
         : undefined,
@@ -76,12 +87,12 @@ async function resolveSmtpConnectionHost(host: string): Promise<string> {
   return host;
 }
 
-export async function sendBookingNotification(booking: Booking): Promise<NotificationResult> {
+async function sendBookingEmail(booking: Booking, kind: NotificationKind): Promise<NotificationResult> {
   const to = process.env.NOTIFY_TO_EMAIL || "jasonko12033@gmail.com";
   const resendApiKey = process.env.RESEND_API_KEY;
 
   if (resendApiKey) {
-    return sendWithResend(booking, resendApiKey, to);
+    return sendWithResend(booking, resendApiKey, to, kind);
   }
 
   const host = process.env.SMTP_HOST;
@@ -112,18 +123,26 @@ export async function sendBookingNotification(booking: Booking): Promise<Notific
   await transporter.sendMail({
     to,
     from: process.env.SMTP_FROM_EMAIL || user,
-    subject: `新預約：${booking.title}`,
+    subject: getSubject(booking, kind),
     attachments: attachments.length
       ? attachments.map((attachment) => ({
           filename: attachment.filename,
           content: Buffer.from(attachment.content, "base64"),
           contentType: attachment.contentType,
-        }))
+      }))
       : undefined,
-    text: getBookingNotificationText(booking),
+    text: getBookingNotificationText(booking, kind),
   });
 
   return { sent: true };
+}
+
+export async function sendBookingNotification(booking: Booking): Promise<NotificationResult> {
+  return sendBookingEmail(booking, "created");
+}
+
+export async function sendBookingReminder(booking: Booking): Promise<NotificationResult> {
+  return sendBookingEmail(booking, "reminder24h");
 }
 
 export function queueBookingNotification(booking: Booking): void {

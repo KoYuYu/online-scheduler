@@ -3,7 +3,6 @@
 import {
   AlertCircle,
   CalendarCheck,
-  CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -394,7 +393,7 @@ export function PublicScheduler() {
       <div className="topbar compact">
         <div className="brand">
           <div className="brand-mark">
-            <CalendarDays size={22} />
+            <img alt="" src="/icons/app-icon-fashion-192.png" />
           </div>
           <div>
             <h1>線上預約系統</h1>

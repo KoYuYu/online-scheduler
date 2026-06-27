@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  CalendarDays,
   ChevronDown,
   Clock,
   ClipboardPaste,
@@ -439,7 +438,7 @@ export function AdminDashboard() {
         <div className="panel-header">
           <div className="brand">
             <div className="brand-mark">
-              <CalendarDays size={22} />
+              <img alt="" src="/icons/app-icon-fashion-192.png" />
             </div>
             <div>
               <h1>預約管理後台</h1>
@@ -483,7 +482,7 @@ export function AdminDashboard() {
       <div className="topbar compact">
         <div className="brand">
           <div className="brand-mark">
-            <CalendarDays size={22} />
+            <img alt="" src="/icons/app-icon-fashion-192.png" />
           </div>
           <div>
             <h1>預約管理後台</h1>

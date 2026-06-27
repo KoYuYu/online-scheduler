@@ -8,6 +8,7 @@
     "start": "node scripts/start.js",
     "db:migrate": "node scripts/migrate.js",
     "admin:create": "node scripts/create-admin.js",
+    "reminders:24h": "node scripts/run-reminders.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -73,6 +73,7 @@ function normalizeBooking(booking: Booking): Booking {
     attachmentMimeType: firstAttachment?.mimeType || null,
     attachmentDataBase64: firstAttachment?.dataBase64 || null,
     attachments,
+    reminder24hSentAt: booking.reminder24hSentAt || null,
   };
 }
 
@@ -242,6 +243,7 @@ export class JsonStore {
       attachmentMimeType: firstAttachment?.mimeType || null,
       attachmentDataBase64: firstAttachment?.dataBase64 || null,
       attachments,
+      reminder24hSentAt: null,
       status: "confirmed",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -290,6 +292,21 @@ export class JsonStore {
       throw new Error("BOOKING_CONFLICT");
     }
     data.bookings[index] = merged;
+    await writeData(data);
+    return data.bookings[index];
+  }
+
+  async markBookingReminder24hSent(id: string, sentAt: string): Promise<Booking | null> {
+    const data = await readData();
+    const index = data.bookings.findIndex((booking) => booking.id === id);
+    if (index < 0) {
+      return null;
+    }
+    data.bookings[index] = normalizeBooking({
+      ...data.bookings[index],
+      reminder24hSentAt: data.bookings[index].reminder24hSentAt || sentAt,
+      updatedAt: nowIso(),
+    });
     await writeData(data);
     return data.bookings[index];
   }
