@@ -14,6 +14,6 @@ export async function GET(request: Request) {
   const fromUtc = localYmdTimeToUtc(fromYmd, "00:00", "America/New_York").toISOString();
   const toUtc = localYmdTimeToUtc(addDaysToYmd(toYmd, 1), "00:00", "America/New_York").toISOString();
   const bookings = await store.listBookings(fromUtc, toUtc);
-  const slots = buildPublicCalendarSlots(rules, bookings, fromYmd, toYmd);
+  const slots = buildPublicCalendarSlots(rules, bookings, fromYmd, toYmd, { excludePast: true });
   return NextResponse.json({ slots: serializePublicSlots(slots) });
 }

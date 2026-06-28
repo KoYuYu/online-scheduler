@@ -23,8 +23,9 @@ export async function POST(request: Request) {
     const fromUtc = localYmdTimeToUtc(fromYmd, "00:00", "America/New_York").toISOString();
     const toUtc = localYmdTimeToUtc(addDaysToYmd(toYmd, 1), "00:00", "America/New_York").toISOString();
     const bookings = await store.listBookings(fromUtc, toUtc);
-    const slots = buildAvailableSlots(rules, bookings, fromYmd, toYmd);
-    const available = isTimeRangeAvailable(rules, bookings, preview.startAtUtc, preview.endAtUtc);
+    const now = new Date();
+    const slots = buildAvailableSlots(rules, bookings, fromYmd, toYmd, { excludePast: true, now });
+    const available = isTimeRangeAvailable(rules, bookings, preview.startAtUtc, preview.endAtUtc, { rejectPast: true, now });
     return NextResponse.json({ preview, available, suggestions: available ? [] : serializePublicSlots(slots.slice(0, 6)) });
   } catch (error) {
     return NextResponse.json(

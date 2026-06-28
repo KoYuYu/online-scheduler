@@ -48,6 +48,32 @@ describe("serializePublicSlots", () => {
     ]);
   });
 
+  it("excludes slots that already started when requested", () => {
+    const rules: AvailabilityRule[] = [
+      {
+        id: "default-mon-20-24",
+        weekday: 1,
+        startTimeLocal: "20:00",
+        endTimeLocal: "24:00",
+        slotMinutes: 60,
+        timezone: "America/New_York",
+        isActive: true,
+      },
+    ];
+
+    const slots = buildAvailableSlots(rules, [], "2026-06-22", "2026-06-22", {
+      excludePast: true,
+      now: new Date("2026-06-23T01:01:00.000Z"),
+    });
+
+    expect(slots.map((slot) => slot.timeLabel)).toEqual([
+      "9:30 PM - 10:30 PM ET",
+      "10:00 PM - 11:00 PM ET",
+      "10:30 PM - 11:30 PM ET",
+      "11:00 PM - 12:00 AM ET",
+    ]);
+  });
+
   it("builds weekend morning and evening slots", () => {
     const rules: AvailabilityRule[] = [
       {
@@ -207,6 +233,27 @@ describe("serializePublicSlots", () => {
 
     expect(isTimeRangeAvailable(rules, [], "2026-06-18T02:15:00.000Z", "2026-06-18T03:15:00.000Z")).toBe(true);
     expect(isTimeRangeAvailable(rules, [], "2026-06-18T03:30:00.000Z", "2026-06-18T04:30:00.000Z")).toBe(false);
+  });
+
+  it("rejects otherwise valid ranges that already started when requested", () => {
+    const rules: AvailabilityRule[] = [
+      {
+        id: "default-wed-20-24",
+        weekday: 3,
+        startTimeLocal: "20:00",
+        endTimeLocal: "24:00",
+        slotMinutes: 60,
+        timezone: "America/New_York",
+        isActive: true,
+      },
+    ];
+
+    expect(
+      isTimeRangeAvailable(rules, [], "2026-06-18T02:15:00.000Z", "2026-06-18T03:15:00.000Z", {
+        rejectPast: true,
+        now: new Date("2026-06-18T02:16:00.000Z"),
+      })
+    ).toBe(false);
   });
 
   it("blocks arbitrary Zoom ranges that overlap an existing booking", () => {

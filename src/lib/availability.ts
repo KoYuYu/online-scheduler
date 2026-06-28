@@ -16,6 +16,11 @@ import type { AvailabilityRule, Booking, PublicSlot } from "@/lib/types";
 
 const SLOT_START_STEP_MINUTES = 30;
 
+type AvailabilityBuildOptions = {
+  now?: Date;
+  excludePast?: boolean;
+};
+
 export function overlaps(startA: string, endA: string, startB: string, endB: string): boolean {
   return new Date(startA).getTime() < new Date(endB).getTime() && new Date(endA).getTime() > new Date(startB).getTime();
 }
@@ -28,13 +33,30 @@ export function normalizeRange(from?: string | null, to?: string | null): { from
   };
 }
 
-export function buildAvailableSlots(rules: AvailabilityRule[], bookings: Booking[], fromYmd: string, toYmd: string): PublicSlot[] {
-  return buildPublicCalendarSlots(rules, bookings, fromYmd, toYmd).filter((slot) => slot.status !== "blocked");
+export function isPastStart(startAtUtc: string, now = new Date()): boolean {
+  return new Date(startAtUtc).getTime() <= now.getTime();
 }
 
-export function buildPublicCalendarSlots(rules: AvailabilityRule[], bookings: Booking[], fromYmd: string, toYmd: string): PublicSlot[] {
+export function buildAvailableSlots(
+  rules: AvailabilityRule[],
+  bookings: Booking[],
+  fromYmd: string,
+  toYmd: string,
+  options: AvailabilityBuildOptions = {}
+): PublicSlot[] {
+  return buildPublicCalendarSlots(rules, bookings, fromYmd, toYmd, options).filter((slot) => slot.status !== "blocked");
+}
+
+export function buildPublicCalendarSlots(
+  rules: AvailabilityRule[],
+  bookings: Booking[],
+  fromYmd: string,
+  toYmd: string,
+  options: AvailabilityBuildOptions = {}
+): PublicSlot[] {
   const slots: PublicSlot[] = [];
   const activeRules = rules.filter((rule) => rule.isActive);
+  const now = options.now || new Date();
 
   for (let ymd = fromYmd; ymd <= toYmd; ymd = addDaysToYmd(ymd, 1)) {
     const weekday = ymdToWeekday(ymd);
@@ -47,6 +69,9 @@ export function buildPublicCalendarSlots(rules: AvailabilityRule[], bookings: Bo
       for (let cursor = startMinutes; cursor + rule.slotMinutes <= endMinutes; cursor += SLOT_START_STEP_MINUTES) {
         const startAtUtc = localYmdTimeToUtc(ymd, timeFromMinutes(cursor), rule.timezone || EASTERN_TIME_ZONE).toISOString();
         const endAtUtc = localYmdTimeToUtc(ymd, timeFromMinutes(cursor + rule.slotMinutes), rule.timezone || EASTERN_TIME_ZONE).toISOString();
+        if (options.excludePast && isPastStart(startAtUtc, now)) {
+          continue;
+        }
         const blocked = bookings.some(
           (booking) => booking.status !== "cancelled" && overlaps(startAtUtc, endAtUtc, booking.startAtUtc, booking.endAtUtc)
         );
@@ -80,11 +105,15 @@ export function isTimeRangeAvailable(
   rules: AvailabilityRule[],
   bookings: Booking[],
   startAtUtc: string,
-  endAtUtc: string
+  endAtUtc: string,
+  options: { now?: Date; rejectPast?: boolean } = {}
 ): boolean {
   const start = new Date(startAtUtc);
   const end = new Date(endAtUtc);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start.getTime() >= end.getTime()) {
+    return false;
+  }
+  if (options.rejectPast && start.getTime() <= (options.now || new Date()).getTime()) {
     return false;
   }
 

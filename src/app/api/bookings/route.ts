@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
-import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
+import { buildAvailableSlots, findMatchingSlot, isPastStart, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
 import { queueBookingReminderIfDue } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
@@ -79,6 +79,11 @@ export async function POST(request: Request) {
       };
     }
 
+    const now = new Date();
+    if (isPastStart(input.startAtUtc, now)) {
+      return NextResponse.json({ error: "不能預約已經過去或已開始的時間。" }, { status: 409 });
+    }
+
     const store = getStore();
     await store.ensureDefaultAvailability();
     const ymd = formatYmd(new Date(input.startAtUtc));
@@ -87,10 +92,10 @@ export async function POST(request: Request) {
     const fromUtc = localYmdTimeToUtc(fromYmd, "00:00", "America/New_York").toISOString();
     const toUtc = localYmdTimeToUtc(addDaysToYmd(toYmd, 1), "00:00", "America/New_York").toISOString();
     const existingBookings = await store.listBookings(fromUtc, toUtc);
-    const slots = buildAvailableSlots(rules, existingBookings, fromYmd, toYmd);
+    const slots = buildAvailableSlots(rules, existingBookings, fromYmd, toYmd, { excludePast: true, now });
     const available =
       input.source === "zoom"
-        ? isTimeRangeAvailable(rules, existingBookings, input.startAtUtc, input.endAtUtc)
+        ? isTimeRangeAvailable(rules, existingBookings, input.startAtUtc, input.endAtUtc, { rejectPast: true, now })
         : Boolean(findMatchingSlot(slots, input.startAtUtc, input.endAtUtc));
 
     if (!available) {
