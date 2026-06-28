@@ -74,6 +74,7 @@ function normalizeBooking(booking: Booking): Booking {
     attachmentDataBase64: firstAttachment?.dataBase64 || null,
     attachments,
     reminder24hSentAt: booking.reminder24hSentAt || null,
+    reminder24hLastError: booking.reminder24hLastError || null,
   };
 }
 
@@ -244,6 +245,7 @@ export class JsonStore {
       attachmentDataBase64: firstAttachment?.dataBase64 || null,
       attachments,
       reminder24hSentAt: null,
+      reminder24hLastError: null,
       status: "confirmed",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -305,6 +307,25 @@ export class JsonStore {
     data.bookings[index] = normalizeBooking({
       ...data.bookings[index],
       reminder24hSentAt: data.bookings[index].reminder24hSentAt || sentAt,
+      reminder24hLastError: null,
+      updatedAt: nowIso(),
+    });
+    await writeData(data);
+    return data.bookings[index];
+  }
+
+  async markBookingReminder24hFailed(id: string, error: string): Promise<Booking | null> {
+    const data = await readData();
+    const index = data.bookings.findIndex((booking) => booking.id === id);
+    if (index < 0) {
+      return null;
+    }
+    if (data.bookings[index].reminder24hSentAt) {
+      return normalizeBooking(data.bookings[index]);
+    }
+    data.bookings[index] = normalizeBooking({
+      ...data.bookings[index],
+      reminder24hLastError: error.slice(0, 1000),
       updatedAt: nowIso(),
     });
     await writeData(data);

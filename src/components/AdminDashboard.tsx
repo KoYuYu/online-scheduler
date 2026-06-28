@@ -360,6 +360,7 @@ export function AdminDashboard() {
   }
 
   function renderBookingCard(booking: Booking, options: { past?: boolean } = {}) {
+    const reminderStatus = getReminderStatus(booking);
     return (
       <article className={`booking-card ${options.past ? "past-booking" : ""}`} key={booking.id}>
         <header>
@@ -383,6 +384,9 @@ export function AdminDashboard() {
           <span>{booking.bookerName || "未提供姓名"}</span>
           {booking.invitedByName ? <span>邀請人：{booking.invitedByName}</span> : null}
           <span>{formatSourceLabel(booking.source)}</span>
+          <span className={`reminder-chip ${reminderStatus.tone}`} title={reminderStatus.title}>
+            {reminderStatus.label}
+          </span>
           {options.past ? <span>歷史</span> : null}
           {booking.status === "cancelled" ? <span>已取消</span> : null}
         </div>
@@ -836,6 +840,38 @@ function compareBookingStartAscending(left: Booking, right: Booking): number {
 
 function compareBookingStartDescending(left: Booking, right: Booking): number {
   return new Date(right.startAtUtc).getTime() - new Date(left.startAtUtc).getTime();
+}
+
+function getReminderStatus(booking: Booking): { label: string; tone: "sent" | "pending" | "error" | "muted"; title?: string } {
+  if (booking.reminder24hSentAt) {
+    return { label: `24h 提醒：已寄 ${formatEtTimestampShort(booking.reminder24hSentAt)}`, tone: "sent" };
+  }
+  if (booking.reminder24hLastError) {
+    return { label: "24h 提醒：寄送失敗", tone: "error", title: booking.reminder24hLastError };
+  }
+  if (booking.status === "cancelled") {
+    return { label: "24h 提醒：不需寄", tone: "muted" };
+  }
+
+  const startTime = new Date(booking.startAtUtc).getTime();
+  const now = Date.now();
+  if (startTime <= now) {
+    return { label: "24h 提醒：已過期未寄", tone: "muted" };
+  }
+  if (startTime <= now + 24 * 60 * 60 * 1000) {
+    return { label: "24h 提醒：待寄", tone: "pending" };
+  }
+  return { label: "24h 提醒：未到時間", tone: "muted" };
+}
+
+function formatEtTimestampShort(iso: string): string {
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "America/New_York",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
 }
 
 function bookingToEditForm(booking: Booking): BookingEditFormState {

@@ -64,6 +64,7 @@ function mapBooking(row: Record<string, unknown>, attachments: BookingAttachment
     attachmentDataBase64: firstAttachment?.dataBase64 || null,
     attachments: finalAttachments,
     reminder24hSentAt: row.reminder_24h_sent_at ? new Date(row.reminder_24h_sent_at as string).toISOString() : null,
+    reminder24hLastError: (row.reminder_24h_last_error as string | null) || null,
     status: row.status as Booking["status"],
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
@@ -416,10 +417,24 @@ export class PostgresStore {
     const result = await this.pool.query(
       `UPDATE bookings
        SET reminder_24h_sent_at = COALESCE(reminder_24h_sent_at, $2::timestamptz),
+           reminder_24h_last_error = NULL,
            updated_at = now()
        WHERE id = $1
        RETURNING *`,
       [id, sentAt]
+    );
+    const [booking] = await this.mapBookingsWithAttachments(result.rows);
+    return booking || null;
+  }
+
+  async markBookingReminder24hFailed(id: string, error: string): Promise<Booking | null> {
+    const result = await this.pool.query(
+      `UPDATE bookings
+       SET reminder_24h_last_error = $2,
+           updated_at = now()
+       WHERE id = $1 AND reminder_24h_sent_at IS NULL
+       RETURNING *`,
+      [id, error.slice(0, 1000)]
     );
     const [booking] = await this.mapBookingsWithAttachments(result.rows);
     return booking || null;

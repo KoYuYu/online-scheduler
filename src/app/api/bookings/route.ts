@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
+import { queueBookingReminderIfDue } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
 import { isSupportedZoomTimeZone, type BookingInput } from "@/lib/types";
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
 
     const booking = await store.createBooking(input);
     queueBookingNotification(booking);
+    queueBookingReminderIfDue(booking);
     return NextResponse.json({
       booking: {
         id: booking.id,

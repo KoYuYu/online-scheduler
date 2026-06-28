@@ -126,6 +126,30 @@ export function formatEtTimeLabel(startIso: string, endIso: string): string {
   return `${formatter.format(new Date(startIso))} - ${formatter.format(new Date(endIso))} ET`;
 }
 
+export function formatEtDateTimeRangeLabel(startIso: string, endIso: string): string {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  const sameEtDay = formatYmd(start, EASTERN_TIME_ZONE) === formatYmd(end, EASTERN_TIME_ZONE);
+  const dateTimeFormatter = new Intl.DateTimeFormat("zh-TW", {
+    timeZone: EASTERN_TIME_ZONE,
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const timeFormatter = new Intl.DateTimeFormat("zh-TW", {
+    timeZone: EASTERN_TIME_ZONE,
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  return sameEtDay
+    ? `${dateTimeFormatter.format(start)} - ${timeFormatter.format(end)}（美東）`
+    : `${dateTimeFormatter.format(start)} - ${dateTimeFormatter.format(end)}（美東）`;
+}
+
 export function formatEtDateTimeLabel(iso: string): string {
   return new Intl.DateTimeFormat("en-US", {
     timeZone: EASTERN_TIME_ZONE,

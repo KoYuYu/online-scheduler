@@ -2,7 +2,7 @@ import { resolve4 } from "node:dns/promises";
 import { isIP } from "node:net";
 import nodemailer from "nodemailer";
 import type { Booking } from "@/lib/types";
-import { formatEtTimeLabel } from "@/lib/time";
+import { formatEtDateTimeRangeLabel } from "@/lib/time";
 
 type NotificationResult = { sent: boolean; reason?: string };
 type NotificationKind = "created" | "reminder24h";
@@ -14,7 +14,7 @@ function getSubject(booking: Booking, kind: NotificationKind): string {
 function getBookingNotificationText(booking: Booking, kind: NotificationKind): string {
   const lines = [
     `主題：${booking.title}`,
-    `時間：${formatEtTimeLabel(booking.startAtUtc, booking.endAtUtc)}`,
+    `時間：${formatEtDateTimeRangeLabel(booking.startAtUtc, booking.endAtUtc)}`,
     `預約者：${booking.bookerName || "未提供"}`,
     `邀請人：${booking.invitedByName || ""}`,
     `Zoom: ${booking.zoomJoinUrl || ""}`,

@@ -33,6 +33,7 @@ export type Booking = {
   attachmentDataBase64: string | null;
   attachments: BookingAttachment[];
   reminder24hSentAt: string | null;
+  reminder24hLastError: string | null;
   status: "confirmed" | "cancelled";
   createdAt: string;
   updatedAt: string;

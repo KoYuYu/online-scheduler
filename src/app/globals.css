@@ -950,6 +950,28 @@ button:disabled {
   border-radius: 999px;
 }
 
+.booking-meta .reminder-chip.sent {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #b9e4d0;
+}
+
+.booking-meta .reminder-chip.pending {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: #edd18a;
+}
+
+.booking-meta .reminder-chip.error {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: #efc0c0;
+}
+
+.booking-meta .reminder-chip.muted {
+  color: var(--muted);
+}
+
 .link-line {
   flex-wrap: wrap;
   margin-top: 10px;

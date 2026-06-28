@@ -1,10 +1,32 @@
-const appUrl = (process.env.APP_URL || "").replace(/\/$/, "");
+const rawAppUrl = process.env.APP_URL || "";
 const cronSecret = process.env.CRON_SECRET;
 
-async function main() {
-  if (!appUrl) {
+function safeValue(value) {
+  return value.replace(/([?&](secret|token|key)=)[^&]+/gi, "$1***");
+}
+
+function parseAppUrl(value) {
+  const trimmed = value.trim();
+  if (!trimmed) {
     throw new Error("APP_URL is not set.");
   }
+
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`APP_URL is invalid: "${safeValue(trimmed)}". Use a full URL like https://your-app.up.railway.app`);
+  }
+
+  if (!["http:", "https:"].includes(url.protocol) || url.hostname === "http" || url.hostname === "https") {
+    throw new Error(`APP_URL is invalid: "${safeValue(trimmed)}". Use exactly one protocol, for example https://your-app.up.railway.app`);
+  }
+
+  return url.origin;
+}
+
+async function main() {
+  const appUrl = parseAppUrl(rawAppUrl);
   if (!cronSecret) {
     throw new Error("CRON_SECRET is not set.");
   }

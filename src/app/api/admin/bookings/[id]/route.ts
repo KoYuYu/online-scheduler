@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { getAdminSession } from "@/lib/auth";
+import { queueBookingReminderIfDue } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 import type { Booking, BookingInput } from "@/lib/types";
 
@@ -80,6 +81,7 @@ export async function PATCH(request: NextRequest, context: Params) {
     if (!booking) {
       return NextResponse.json({ error: "找不到資料。" }, { status: 404 });
     }
+    queueBookingReminderIfDue(booking);
     return NextResponse.json({ booking });
   } catch (error) {
     const attachmentMessage = attachmentErrorMessage(error);
