@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isPastStart, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
-import { queueBookingCreatedPush } from "@/lib/push";
-import { queueBookingReminderIfDue } from "@/lib/reminders";
+import { queueBookingCreatedPushAndMarkCoveredReminders } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
 import { isSupportedZoomTimeZone, type BookingInput } from "@/lib/types";
@@ -108,8 +107,7 @@ export async function POST(request: Request) {
 
     const booking = await store.createBooking(input);
     queueBookingNotification(booking);
-    queueBookingCreatedPush(booking);
-    queueBookingReminderIfDue(booking);
+    queueBookingCreatedPushAndMarkCoveredReminders(booking);
     return NextResponse.json({
       booking: {
         id: booking.id,

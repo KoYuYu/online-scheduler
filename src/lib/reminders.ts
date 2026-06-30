@@ -1,5 +1,5 @@
 import { sendBookingReminder } from "@/lib/email";
-import { buildReminderPushPayload, sendAdminPushNotification, type PushDeliveryStore } from "@/lib/push";
+import { buildReminderPushPayload, sendAdminPushNotification, sendBookingCreatedPush, type PushDeliveryStore } from "@/lib/push";
 import { getStore } from "@/lib/storage";
 import type { Booking } from "@/lib/types";
 
@@ -76,6 +76,20 @@ export function isBookingReminderDue(booking: Booking, now = new Date(), kind: R
   );
 }
 
+export function getCreatedBookingCoveredReminderKinds(booking: Booking, now = new Date()): ReminderKind[] {
+  return (Object.keys(reminderConfigs) as ReminderKind[]).filter((kind) => isBookingReminderDue(booking, now, kind));
+}
+
+export function getMostUrgentDueReminderKind(booking: Booking, now = new Date()): ReminderKind | null {
+  if (isBookingReminderDue(booking, now, "1h")) {
+    return "1h";
+  }
+  if (isBookingReminderDue(booking, now, "24h")) {
+    return "24h";
+  }
+  return null;
+}
+
 async function sendReminderChannels(booking: Booking, kind: ReminderKind, store: ReminderStore): Promise<{ sent: boolean; error?: string }> {
   const config = reminderConfigs[kind];
   const errors: string[] = [];
@@ -142,6 +156,9 @@ export async function sendReminderForBooking(
       return { failed: { id: booking.id, title: booking.title, kind, error } };
     }
     await markReminderSent(store, booking, kind);
+    if (kind === "1h" && isBookingReminderDue(booking, now, "24h")) {
+      await markReminderSent(store, booking, "24h");
+    }
     return { sent: { id: booking.id, title: booking.title, kind, startAtUtc: booking.startAtUtc } };
   } catch (error) {
     const message = normalizeReminderError(error);
@@ -153,11 +170,12 @@ export async function sendReminderForBooking(
 export async function sendDueBookingReminders(store: ReminderStore, now = new Date()) {
   const cutoff = new Date(now.getTime() + reminderLookaheadMs);
   const bookings = await store.listBookings(now.toISOString(), cutoff.toISOString());
-  const dueReminders = bookings.flatMap((booking) =>
-    (Object.keys(reminderConfigs) as ReminderKind[])
-      .filter((kind) => isBookingReminderDue(booking, now, kind))
-      .map((kind) => ({ booking, kind }))
-  );
+  const dueReminders = bookings
+    .map((booking) => {
+      const kind = getMostUrgentDueReminderKind(booking, now);
+      return kind ? { booking, kind } : null;
+    })
+    .filter((reminder): reminder is { booking: Booking; kind: ReminderKind } => Boolean(reminder));
   const sent: ReminderSent[] = [];
   const failed: ReminderFailure[] = [];
 
@@ -184,27 +202,64 @@ export async function sendDueBookingReminders(store: ReminderStore, now = new Da
 }
 
 export function queueBookingReminderIfDue(booking: Booking): void {
-  const dueKinds = (Object.keys(reminderConfigs) as ReminderKind[]).filter((kind) => isBookingReminderDue(booking, new Date(), kind));
-  if (!dueKinds.length) {
+  const now = new Date();
+  const kind = getMostUrgentDueReminderKind(booking, now);
+  if (!kind) {
     return;
   }
 
   const store = getStore();
-  for (const kind of dueKinds) {
-    void sendReminderForBooking(store, booking, new Date(), kind)
-      .then((result) => {
-        if (result.sent) {
-          console.log(`${reminderConfigs[kind].label}預約提醒已送出。`, { bookingId: booking.id });
-        }
-        if (result.failed) {
-          console.error(`${reminderConfigs[kind].label}預約提醒寄送失敗。`, result.failed);
-        }
-      })
-      .catch((error: unknown) => {
-        console.error(`${reminderConfigs[kind].label}預約提醒處理失敗。`, {
-          bookingId: booking.id,
-          error: normalizeReminderError(error),
-        });
+  void sendReminderForBooking(store, booking, now, kind)
+    .then((result) => {
+      if (result.sent) {
+        console.log(`${reminderConfigs[kind].label}預約提醒已送出。`, { bookingId: booking.id });
+      }
+      if (result.failed) {
+        console.error(`${reminderConfigs[kind].label}預約提醒寄送失敗。`, result.failed);
+      }
+    })
+    .catch((error: unknown) => {
+      console.error(`${reminderConfigs[kind].label}預約提醒處理失敗。`, {
+        bookingId: booking.id,
+        error: normalizeReminderError(error),
       });
-  }
+    });
+}
+
+export function queueBookingCreatedPushAndMarkCoveredReminders(booking: Booking): void {
+  const now = new Date();
+  const coveredKinds = getCreatedBookingCoveredReminderKinds(booking, now);
+  const store = getStore();
+
+  void sendBookingCreatedPush(booking, now, store)
+    .then(async (result) => {
+      if (result.sent > 0) {
+        for (const kind of coveredKinds) {
+          await markReminderSent(store, booking, kind);
+        }
+        console.log("新預約推送已送出。", {
+          bookingId: booking.id,
+          coveredReminders: coveredKinds,
+          ...result,
+        });
+        return;
+      }
+
+      console.warn("新預約推送未送出，保留 reminder 後續重試。", {
+        bookingId: booking.id,
+        coveredReminders: coveredKinds,
+        ...result,
+      });
+
+      const fallbackKind = getMostUrgentDueReminderKind(booking, now);
+      if (fallbackKind) {
+        await sendReminderForBooking(store, booking, now, fallbackKind);
+      }
+    })
+    .catch((error: unknown) => {
+      console.error("新預約推送處理失敗，保留 reminder 後續重試。", {
+        bookingId: booking.id,
+        error: normalizeReminderError(error),
+      });
+    });
 }

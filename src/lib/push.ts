@@ -61,6 +61,27 @@ function toWebPushSubscription(subscription: PushSubscriptionRecord): WebPushSub
   };
 }
 
+export function buildBookingCreatedPushPayload(booking: Booking, now = new Date()): AdminPushPayload {
+  const leadMs = new Date(booking.startAtUtc).getTime() - now.getTime();
+  const oneHourMs = 60 * 60 * 1000;
+  const twentyFourHoursMs = 24 * oneHourMs;
+  const prefix =
+    leadMs > 0 && leadMs <= oneHourMs
+      ? "新預約，即將開始"
+      : leadMs > oneHourMs && leadMs <= twentyFourHoursMs
+        ? "新預約，24 小時內開始"
+        : "新預約";
+
+  return {
+    title: `${prefix}：${booking.title}`,
+    body: formatEtDateTimeRangeLabel(booking.startAtUtc, booking.endAtUtc),
+    url: "/admin",
+    tag: `booking-created-${booking.id}`,
+    bookingId: booking.id,
+    kind: "booking_created",
+  };
+}
+
 export async function sendAdminPushNotification(
   payload: AdminPushPayload,
   store: PushDeliveryStore = getStore()
@@ -104,6 +125,14 @@ export async function sendAdminPushNotification(
   return result;
 }
 
+export async function sendBookingCreatedPush(
+  booking: Booking,
+  now = new Date(),
+  store: PushDeliveryStore = getStore()
+): Promise<AdminPushResult> {
+  return sendAdminPushNotification(buildBookingCreatedPushPayload(booking, now), store);
+}
+
 export function queueAdminPushNotification(payload: AdminPushPayload, logLabel = "管理員推送"): void {
   void sendAdminPushNotification(payload)
     .then((result) => {
@@ -121,17 +150,19 @@ export function queueAdminPushNotification(payload: AdminPushPayload, logLabel =
 }
 
 export function queueBookingCreatedPush(booking: Booking): void {
-  queueAdminPushNotification(
-    {
-      title: `新預約：${booking.title}`,
-      body: formatEtDateTimeRangeLabel(booking.startAtUtc, booking.endAtUtc),
-      url: "/admin",
-      tag: `booking-created-${booking.id}`,
-      bookingId: booking.id,
-      kind: "booking_created",
-    },
-    "新預約推送"
-  );
+  void sendBookingCreatedPush(booking)
+    .then((result) => {
+      if (result.sent > 0) {
+        console.log("新預約推送已送出。", result);
+        return;
+      }
+      console.warn("新預約推送未送出。", result);
+    })
+    .catch((error: unknown) => {
+      console.error("新預約推送處理失敗。", {
+        error: normalizePushError(error),
+      });
+    });
 }
 
 export function buildReminderPushPayload(booking: Booking, kind: "24h" | "1h"): AdminPushPayload {
