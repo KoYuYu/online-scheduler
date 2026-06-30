@@ -93,6 +93,39 @@ button:disabled {
   min-width: 0;
 }
 
+.language-toggle {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 3px;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.language-toggle button {
+  min-width: 46px;
+  min-height: 30px;
+  padding: 5px 9px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 780;
+}
+
+.language-toggle button.active {
+  color: var(--primary-dark);
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(23, 32, 46, 0.1);
+}
+
+.language-toggle button:focus-visible {
+  outline: 3px solid rgba(40, 112, 103, 0.18);
+  outline-offset: 2px;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -1274,6 +1307,14 @@ button:disabled {
 
   .topbar-actions {
     width: 100%;
+  }
+
+  .language-toggle {
+    width: 100%;
+  }
+
+  .language-toggle button {
+    flex: 1;
   }
 
   .topbar-actions .ghost-button,

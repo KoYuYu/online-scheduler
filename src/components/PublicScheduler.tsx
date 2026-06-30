@@ -39,12 +39,210 @@ type AttachmentState = {
   sizeBytes: number;
 };
 
-const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
+type Language = "zh" | "en";
+
+const publicCopy = {
+  zh: {
+    appTitle: "線上預約系統",
+    availabilityWindow: "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）",
+    slotCadence: "60 分鐘，每 30 分鐘可選",
+    adminLink: "管理後台",
+    publicAvailability: "公開可預約時間",
+    chooseSlotHeading: "選擇可預約時段",
+    privacyNote: "預約細節不會公開顯示。",
+    today: "今天",
+    weekSwitchAria: "週切換",
+    previousWeek: "上一週",
+    nextWeek: "下一週",
+    refresh: "重新整理",
+    thisWeek: "本週",
+    weeksLater: (count: number) => `${count} 週後`,
+    availableSlots: "可預約時段",
+    booked: "已預約",
+    timezone: "時區",
+    easternShort: "美東",
+    loading: "載入中",
+    noSlots: "無時段",
+    noAvailableSlots: "無可預約時段",
+    todayChip: "今天",
+    availableShort: "可約",
+    bookedShort: "已約",
+    booking: "預約",
+    confirmRequest: "確認預約",
+    bookingMethod: "預約方式",
+    pickSlot: "選擇時段",
+    pasteZoom: "貼上 Zoom",
+    confirmManualBooking: "確認手動預約",
+    confirmSlotCount: (count: number) => `確認 ${count} 個時段`,
+    zoomInviteText: "Zoom 邀請內容",
+    zoomInvitePlaceholder: "貼上完整 Zoom 邀請內容，系統會自動抓取會議時間與連結。",
+    submitZoomBooking: "提交 Zoom 預約",
+    selectedSlotPrompt: "請先從行事曆選擇一個或多個可預約時段。",
+    selectedSlots: "已選時段",
+    selectedCount: (count: number) => `${count} 個`,
+    removeSlotTitle: "移除時段",
+    name: "姓名",
+    zoomLink: "Zoom 連結",
+    notes: "備註",
+    notesPlaceholder: "可選填會議背景或補充資訊",
+    attachments: "附件",
+    attachmentHelp: "可選填，最多 5MB。",
+    removeAttachmentTitle: "移除附件",
+    invitedBy: "邀請人",
+    topic: "主題",
+    originalTime: "原始時間",
+    easternTime: "美東時間",
+    meetingId: "會議號",
+    passcode: "密碼",
+    notProvided: "未提供",
+    noValue: "無",
+    linkNotFound: "未找到連結",
+    confirmTimezone: "請先確認原始時區",
+    availableToBook: "可預約",
+    unavailableToBook: "此時段不可預約",
+    zoomBooking: "Zoom 預約",
+    chooseOriginalTimezone: "請確認會議原始時區",
+    confirmBookingInfo: "確認預約資訊",
+    timeUnavailable: "這個時間目前無法預約",
+    sourceTimezone: "會議原始時區",
+    chooseInviteTimezone: "請選擇邀請使用的時區",
+    timezoneHelp: "選擇後系統會重新計算美東時間與可預約狀態。",
+    cancel: "取消",
+    close: "關閉",
+    confirmAndBook: "確認並預約",
+    manualBooking: "手動預約",
+    missingZoomTitle: "未提供 Zoom 連結",
+    missingZoomWarning: "這次預約沒有 Zoom 連結。",
+    missingZoomCopy: (count: number) => `系統仍會建立 ${count} 個預約並封鎖時段，但管理員之後可能需要補上會議連結。`,
+    backToAddLink: "返回補連結",
+    submitAnyway: "仍然送出",
+    alternativeTimes: "可改選時段",
+    closeDialogLabel: "關閉確認視窗",
+    languageAria: "切換語言",
+    chinese: "中文",
+    english: "EN",
+    etSuffix: "（美東）",
+    loadSlotsError: "無法載入可預約時段。",
+    parseZoomError: "無法解析 Zoom 邀請。",
+    zoomParseFailed: "Zoom 解析失敗。",
+    bookingSuccess: "預約已確認，這段時間已保留。",
+    bookingBatchSuccess: (count: number) => `已確認 ${count} 個預約，這些時間已保留。`,
+    pickAtLeastOne: "請先選擇至少一個可預約時段。",
+    selectedBlocked: "已選時段中有時間剛剛被預約，請重新選擇。",
+    nameRequired: "請填寫姓名。",
+    bookingFailed: "預約失敗。",
+    partialBookingFailed: (count: number, detail: string) => `已建立 ${count} 個預約，但後續預約失敗：${detail}`,
+    confirmZoomFirst: "請先確認 Zoom 邀請內容與可預約時間。",
+    fileTooLarge: (fileName: string) => `${fileName} 超過 5MB，請重新選擇。`,
+    attachmentReadFailed: "附件讀取失敗，請重新上傳。",
+  },
+  en: {
+    appTitle: "Online Scheduler",
+    availabilityWindow: "Mon-Fri 8:00 PM-12:00 AM ET; Sat-Sun 10:00 AM-1:00 PM and 7:00 PM-12:00 AM ET",
+    slotCadence: "60 minutes, selectable every 30 minutes",
+    adminLink: "Admin",
+    publicAvailability: "Public Availability",
+    chooseSlotHeading: "Choose a Time",
+    privacyNote: "Booking details are never shown publicly.",
+    today: "Today",
+    weekSwitchAria: "Week navigation",
+    previousWeek: "Previous Week",
+    nextWeek: "Next Week",
+    refresh: "Refresh",
+    thisWeek: "This Week",
+    weeksLater: (count: number) => `${count} Week${count > 1 ? "s" : ""} Later`,
+    availableSlots: "Available Slots",
+    booked: "Booked",
+    timezone: "Time Zone",
+    easternShort: "ET",
+    loading: "Loading",
+    noSlots: "No slots",
+    noAvailableSlots: "No available slots",
+    todayChip: "Today",
+    availableShort: "available",
+    bookedShort: "booked",
+    booking: "Booking",
+    confirmRequest: "Confirm Booking",
+    bookingMethod: "Booking method",
+    pickSlot: "Pick a Slot",
+    pasteZoom: "Paste Zoom",
+    confirmManualBooking: "Confirm Manual Booking",
+    confirmSlotCount: (count: number) => `Confirm ${count} Slots`,
+    zoomInviteText: "Zoom Invite Text",
+    zoomInvitePlaceholder: "Paste the full Zoom invite. The system will extract the meeting time and link.",
+    submitZoomBooking: "Submit Zoom Booking",
+    selectedSlotPrompt: "Select one or more available times from the calendar first.",
+    selectedSlots: "Selected Times",
+    selectedCount: (count: number) => `${count} selected`,
+    removeSlotTitle: "Remove time",
+    name: "Name",
+    zoomLink: "Zoom Link",
+    notes: "Notes",
+    notesPlaceholder: "Optional meeting background or extra details",
+    attachments: "Attachments",
+    attachmentHelp: "Optional, up to 5MB.",
+    removeAttachmentTitle: "Remove attachment",
+    invitedBy: "Invited By",
+    topic: "Topic",
+    originalTime: "Original Time",
+    easternTime: "Eastern Time",
+    meetingId: "Meeting ID",
+    passcode: "Passcode",
+    notProvided: "Not provided",
+    noValue: "None",
+    linkNotFound: "No link found",
+    confirmTimezone: "Confirm the original time zone first",
+    availableToBook: "Available to Book",
+    unavailableToBook: "This Time Is Unavailable",
+    zoomBooking: "Zoom Booking",
+    chooseOriginalTimezone: "Confirm Original Time Zone",
+    confirmBookingInfo: "Confirm Booking Details",
+    timeUnavailable: "This time is unavailable",
+    sourceTimezone: "Original Meeting Time Zone",
+    chooseInviteTimezone: "Select the invite time zone",
+    timezoneHelp: "After selection, the system recalculates Eastern Time and availability.",
+    cancel: "Cancel",
+    close: "Close",
+    confirmAndBook: "Confirm and Book",
+    manualBooking: "Manual Booking",
+    missingZoomTitle: "No Zoom Link Provided",
+    missingZoomWarning: "This booking does not include a Zoom link.",
+    missingZoomCopy: (count: number) => `The system will still create ${count} booking${count > 1 ? "s" : ""} and block the time. The admin may add the meeting link later.`,
+    backToAddLink: "Go Back",
+    submitAnyway: "Submit Anyway",
+    alternativeTimes: "Alternative Times",
+    closeDialogLabel: "Close confirmation dialog",
+    languageAria: "Switch language",
+    chinese: "中文",
+    english: "EN",
+    etSuffix: " ET",
+    loadSlotsError: "Unable to load available times.",
+    parseZoomError: "Unable to parse the Zoom invite.",
+    zoomParseFailed: "Zoom parsing failed.",
+    bookingSuccess: "Booking confirmed. This time is now reserved.",
+    bookingBatchSuccess: (count: number) => `${count} bookings confirmed. These times are now reserved.`,
+    pickAtLeastOne: "Select at least one available time first.",
+    selectedBlocked: "One of the selected times was just booked. Please choose again.",
+    nameRequired: "Please enter your name.",
+    bookingFailed: "Booking failed.",
+    partialBookingFailed: (count: number, detail: string) => `${count} booking${count > 1 ? "s" : ""} created, but the next booking failed: ${detail}`,
+    confirmZoomFirst: "Please confirm the Zoom invite details and availability first.",
+    fileTooLarge: (fileName: string) => `${fileName} is larger than 5MB. Please choose another file.`,
+    attachmentReadFailed: "Unable to read the attachment. Please upload it again.",
+  },
+} as const;
+
 const maxWeekOffset = 3;
 const maxAttachmentBytes = 5 * 1024 * 1024;
-const weekdayLabels = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+const weekdayLabels: Record<Language, string[]> = {
+  zh: ["週日", "週一", "週二", "週三", "週四", "週五", "週六"],
+  en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+};
+
+type PublicCopy = (typeof publicCopy)[Language];
 
 export function PublicScheduler() {
+  const [language, setLanguage] = useState<Language>("zh");
   const [todayYmd] = useState(() => formatYmd(new Date(), EASTERN_TIME_ZONE));
   const [weekOffset, setWeekOffset] = useState(0);
   const [slots, setSlots] = useState<PublicSlot[]>([]);
@@ -67,24 +265,37 @@ export function PublicScheduler() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<BookingMessage | null>(null);
   const slotsRequestId = useRef(0);
+  const copy = publicCopy[language];
 
   const currentWeekStartYmd = useMemo(() => startOfWeekYmd(todayYmd), [todayYmd]);
   const weekRange = useMemo(() => buildWeekRange(currentWeekStartYmd, weekOffset), [currentWeekStartYmd, weekOffset]);
-  const todayLabel = useMemo(() => formatDateKeyLong(todayYmd), [todayYmd]);
-  const weekLabel = useMemo(() => `${formatDateKeyShort(weekRange.fromYmd)} - ${formatDateKeyShort(weekRange.toYmd)}`, [weekRange]);
+  const todayLabel = useMemo(() => formatDateKeyLong(todayYmd, language), [language, todayYmd]);
+  const weekLabel = useMemo(() => `${formatDateKeyShort(weekRange.fromYmd, language)} - ${formatDateKeyShort(weekRange.toYmd, language)}`, [language, weekRange]);
   const weekDays = useMemo(
     () =>
       Array.from({ length: 7 }, (_, index) => {
         const dateKey = addDaysToYmd(weekRange.fromYmd, index);
         return {
           dateKey,
-          dateLabel: formatDateKeyShort(dateKey),
+          dateLabel: formatDateKeyShort(dateKey, language),
           isToday: dateKey === todayYmd,
-          weekdayLabel: weekdayLabels[ymdToWeekday(dateKey)],
+          weekdayLabel: weekdayLabels[language][ymdToWeekday(dateKey)],
         };
       }),
-    [todayYmd, weekRange]
+    [language, todayYmd, weekRange]
   );
+
+  useEffect(() => {
+    const storedLanguage = window.localStorage.getItem("scheduler-language");
+    if (storedLanguage === "zh" || storedLanguage === "en") {
+      setLanguage(storedLanguage);
+    }
+  }, []);
+
+  function updateLanguage(nextLanguage: Language) {
+    setLanguage(nextLanguage);
+    window.localStorage.setItem("scheduler-language", nextLanguage);
+  }
 
   async function loadSlots(offset = weekOffset, options: { clearSelection?: boolean } = {}) {
     const requestId = slotsRequestId.current + 1;
@@ -101,7 +312,7 @@ export function PublicScheduler() {
       const response = await fetch(`/api/availability?${params.toString()}`, { cache: "no-store" });
       const data = (await response.json()) as { slots: PublicSlot[]; error?: string };
       if (!response.ok) {
-        throw new Error(data.error || "無法載入可預約時段。");
+        throw new Error(data.error || copy.loadSlotsError);
       }
       if (requestId !== slotsRequestId.current) {
         return;
@@ -115,7 +326,7 @@ export function PublicScheduler() {
       );
     } catch (error) {
       if (requestId === slotsRequestId.current) {
-        setMessage({ type: "error", text: error instanceof Error ? error.message : "無法載入可預約時段。" });
+        setMessage({ type: "error", text: translateServerMessage(error instanceof Error ? error.message : copy.loadSlotsError, language) });
       }
     } finally {
       if (requestId === slotsRequestId.current) {
@@ -156,13 +367,13 @@ export function PublicScheduler() {
       });
       const data = (await response.json()) as ParseResponse;
       if (!response.ok || !data.preview) {
-        throw new Error(data.error || "無法解析 Zoom 邀請。");
+        throw new Error(data.error || copy.parseZoomError);
       }
       setPreview(data.preview);
       setPreviewAvailable(Boolean(data.available));
       setSuggestions(data.available ? [] : data.suggestions || []);
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "Zoom 解析失敗。" });
+      setMessage({ type: "error", text: translateServerMessage(error instanceof Error ? error.message : copy.zoomParseFailed, language) });
     } finally {
       setLoading(false);
     }
@@ -196,9 +407,9 @@ export function PublicScheduler() {
         if (payload.source === "zoom") {
           setPreviewAvailable(false);
         }
-        throw new Error(data.error || "預約失敗。");
+        throw new Error(data.error || copy.bookingFailed);
       }
-      setMessage({ type: "success", text: "預約已確認，這段時間已保留。" });
+      setMessage({ type: "success", text: copy.bookingSuccess });
       setMode("calendar");
       setSelectedSlots([]);
       setPreview(null);
@@ -212,7 +423,7 @@ export function PublicScheduler() {
       clearAttachments();
       void loadSlots(weekOffset);
     } catch (error) {
-      setMessage({ type: "error", text: error instanceof Error ? error.message : "預約失敗。" });
+      setMessage({ type: "error", text: translateServerMessage(error instanceof Error ? error.message : copy.bookingFailed, language) });
     } finally {
       setLoading(false);
     }
@@ -242,17 +453,17 @@ export function PublicScheduler() {
 
   async function submitManualBookings(options: { allowMissingZoom?: boolean } = {}) {
     if (!selectedSlots.length) {
-      setMessage({ type: "error", text: "請先選擇至少一個可預約時段。" });
+      setMessage({ type: "error", text: copy.pickAtLeastOne });
       return;
     }
     const blockedSelection = selectedSlots.find((slot) => slot.status === "blocked");
     if (blockedSelection) {
-      setMessage({ type: "error", text: "已選時段中有時間剛剛被預約，請重新選擇。" });
+      setMessage({ type: "error", text: copy.selectedBlocked });
       setSelectedSlots((current) => current.filter((slot) => slot.status !== "blocked"));
       return;
     }
     if (!bookerName.trim()) {
-      setMessage({ type: "error", text: "請填寫姓名。" });
+      setMessage({ type: "error", text: copy.nameRequired });
       return;
     }
     if (!zoomJoinUrl.trim() && !options.allowMissingZoom) {
@@ -274,7 +485,7 @@ export function PublicScheduler() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             source: "manual",
-            title: "預約會議",
+            title: language === "zh" ? "預約會議" : "Scheduled Meeting",
             startAtUtc: slot.startAtUtc,
             endAtUtc: slot.endAtUtc,
             bookerName,
@@ -286,17 +497,14 @@ export function PublicScheduler() {
         const data = (await response.json()) as { error?: string; suggestions?: PublicSlot[] };
         if (!response.ok) {
           setSuggestions(data.suggestions || []);
-          throw new Error(data.error || "預約失敗。");
+          throw new Error(data.error || copy.bookingFailed);
         }
         createdCount += 1;
       }
 
       setMessage({
         type: "success",
-        text:
-          selectedSlots.length > 1
-            ? `已確認 ${selectedSlots.length} 個預約，這些時間已保留。`
-            : "預約已確認，這段時間已保留。",
+        text: selectedSlots.length > 1 ? copy.bookingBatchSuccess(selectedSlots.length) : copy.bookingSuccess,
       });
       setMode("calendar");
       setSelectedSlots([]);
@@ -306,10 +514,10 @@ export function PublicScheduler() {
       clearAttachments();
       void loadSlots(weekOffset);
     } catch (error) {
-      const detail = error instanceof Error ? error.message : "預約失敗。";
+      const detail = translateServerMessage(error instanceof Error ? error.message : copy.bookingFailed, language);
       setMessage({
         type: "error",
-        text: createdCount ? `已建立 ${createdCount} 個預約，但後續預約失敗：${detail}` : detail,
+        text: createdCount ? copy.partialBookingFailed(createdCount, detail) : detail,
       });
       void loadSlots(weekOffset);
     } finally {
@@ -319,7 +527,7 @@ export function PublicScheduler() {
 
   function submitZoom() {
     if (!preview || !previewAvailable || !preview.timeZoneConfirmed) {
-      setMessage({ type: "error", text: "請先確認 Zoom 邀請內容與可預約時間。" });
+      setMessage({ type: "error", text: copy.confirmZoomFirst });
       return;
     }
     void createBooking({
@@ -338,7 +546,7 @@ export function PublicScheduler() {
     }
     const oversizedFile = selectedFiles.find((file) => file.size > maxAttachmentBytes);
     if (oversizedFile) {
-      setAttachmentError(`${oversizedFile.name} 超過 5MB，請重新選擇。`);
+      setAttachmentError(copy.fileTooLarge(oversizedFile.name));
       setAttachmentInputKey((current) => current + 1);
       return;
     }
@@ -354,7 +562,7 @@ export function PublicScheduler() {
       );
       setAttachments((current) => [...current, ...nextAttachments]);
     } catch {
-      setAttachmentError("附件讀取失敗，請重新上傳。");
+      setAttachmentError(copy.attachmentReadFailed);
       setAttachmentInputKey((current) => current + 1);
     }
   }
@@ -389,24 +597,32 @@ export function PublicScheduler() {
   const canGoNextWeek = weekOffset < maxWeekOffset;
 
   return (
-    <main className="app-shell scheduler-shell">
+    <main className="app-shell scheduler-shell" lang={language === "zh" ? "zh-Hant" : "en"}>
       <div className="topbar compact">
         <div className="brand">
           <div className="brand-mark">
             <img alt="" src="/icons/app-icon-fashion-192.png" />
           </div>
           <div>
-            <h1>線上預約系統</h1>
-            <p>{availabilityWindow}</p>
+            <h1>{copy.appTitle}</h1>
+            <p>{copy.availabilityWindow}</p>
           </div>
         </div>
         <div className="topbar-actions">
+          <div className="language-toggle" aria-label={copy.languageAria}>
+            <button className={language === "zh" ? "active" : ""} type="button" onClick={() => updateLanguage("zh")}>
+              {copy.chinese}
+            </button>
+            <button className={language === "en" ? "active" : ""} type="button" onClick={() => updateLanguage("en")}>
+              {copy.english}
+            </button>
+          </div>
           <span className="window-badge">
             <Clock size={15} />
-            60 分鐘，每 30 分鐘可選
+            {copy.slotCadence}
           </span>
           <a className="ghost-button" href="/admin">
-            管理後台
+            {copy.adminLink}
           </a>
         </div>
       </div>
@@ -415,18 +631,20 @@ export function PublicScheduler() {
         <section className="surface calendar-surface" aria-labelledby="available-times-heading">
           <div className="surface-header">
             <div>
-              <span className="section-kicker">公開可預約時間</span>
-              <h2 id="available-times-heading">選擇可預約時段</h2>
-              <p className="muted">{availabilityWindow}。預約細節不會公開顯示。</p>
+              <span className="section-kicker">{copy.publicAvailability}</span>
+              <h2 id="available-times-heading">{copy.chooseSlotHeading}</h2>
+              <p className="muted">
+                {copy.availabilityWindow}{language === "zh" ? "。" : ". "}{copy.privacyNote}
+              </p>
               <p className="today-line">
-                今天：<strong>{todayLabel}</strong>
+                {copy.today}: <strong>{todayLabel}</strong>
               </p>
             </div>
-            <div className="week-actions" aria-label="週切換">
+            <div className="week-actions" aria-label={copy.weekSwitchAria}>
               {canGoPreviousWeek ? (
                 <button className="ghost-button compact-button" type="button" onClick={() => setWeekOffset((current) => Math.max(0, current - 1))}>
                   <ChevronLeft size={16} />
-                  上一週
+                  {copy.previousWeek}
                 </button>
               ) : null}
               {canGoNextWeek ? (
@@ -435,33 +653,33 @@ export function PublicScheduler() {
                   type="button"
                   onClick={() => setWeekOffset((current) => Math.min(maxWeekOffset, current + 1))}
                 >
-                  下一週
+                  {copy.nextWeek}
                   <ChevronRight size={16} />
                 </button>
               ) : null}
               <button className="ghost-button compact-button" type="button" onClick={() => void loadSlots(weekOffset)}>
                 <RotateCw size={16} />
-                重新整理
+                {copy.refresh}
               </button>
             </div>
           </div>
 
           <div className="calendar-toolbar" aria-label="可預約時間摘要">
             <div>
-              <strong>{weekOffset === 0 ? "本週" : `${weekOffset} 週後`}</strong>
+              <strong>{weekOffset === 0 ? copy.thisWeek : copy.weeksLater(weekOffset)}</strong>
               <span>{weekLabel}</span>
             </div>
             <div>
               <strong>{slotsLoading ? "..." : availableSlotCount}</strong>
-              <span>可預約時段</span>
+              <span>{copy.availableSlots}</span>
             </div>
             <div>
               <strong>{slotsLoading ? "..." : blockedSlotCount}</strong>
-              <span>已預約</span>
+              <span>{copy.booked}</span>
             </div>
             <div>
-              <strong>美東</strong>
-              <span>時區</span>
+              <strong>{copy.easternShort}</strong>
+              <span>{copy.timezone}</span>
             </div>
           </div>
 
@@ -482,18 +700,22 @@ export function PublicScheduler() {
                     <div className="day-head-main">
                       <div className="day-head-title">
                         <strong>{day.weekdayLabel}</strong>
-                        {day.isToday ? <span className="today-chip">今天</span> : null}
+                        {day.isToday ? <span className="today-chip">{copy.todayChip}</span> : null}
                       </div>
                       <span>{day.dateLabel}</span>
                     </div>
                     <span className="day-slot-summary">
-                      {slotsLoading ? "載入中" : daySlots.length ? `${availableCount} 可約${blockedCount ? ` / ${blockedCount} 已約` : ""}` : "無時段"}
+                      {slotsLoading
+                        ? copy.loading
+                        : daySlots.length
+                          ? `${availableCount} ${copy.availableShort}${blockedCount ? ` / ${blockedCount} ${copy.bookedShort}` : ""}`
+                          : copy.noSlots}
                     </span>
                     <ChevronDown className="day-toggle-icon" size={16} />
                   </button>
                   <div className="slot-list">
                     {slotsLoading ? (
-                      <div className="no-slots">載入中...</div>
+                      <div className="no-slots">{copy.loading}...</div>
                     ) : daySlots.length ? (
                       daySlots.map((slot) => {
                         const blocked = slot.status === "blocked";
@@ -509,14 +731,14 @@ export function PublicScheduler() {
                         >
                           <Clock size={15} />
                           <span>
-                            {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc)}
-                            {blocked ? <small>已預約</small> : null}
+                            {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}
+                            {blocked ? <small>{copy.booked}</small> : null}
                           </span>
                         </button>
                         );
                       })
                     ) : (
-                      <div className="no-slots">無可預約時段</div>
+                      <div className="no-slots">{copy.noAvailableSlots}</div>
                     )}
                   </div>
                 </div>
@@ -528,12 +750,12 @@ export function PublicScheduler() {
         <aside className="surface booking-surface" aria-labelledby="booking-panel-heading">
           <div className="surface-header slim">
             <div>
-              <span className="section-kicker">預約</span>
-              <h2 id="booking-panel-heading">確認預約</h2>
+              <span className="section-kicker">{copy.booking}</span>
+              <h2 id="booking-panel-heading">{copy.confirmRequest}</h2>
             </div>
           </div>
 
-          <div className="segmented-control" role="tablist" aria-label="預約方式">
+          <div className="segmented-control" role="tablist" aria-label={copy.bookingMethod}>
             <button
               className={`segment-button ${mode === "calendar" ? "active" : ""}`}
               type="button"
@@ -543,7 +765,7 @@ export function PublicScheduler() {
               }}
             >
               <CalendarCheck size={16} />
-              選擇時段
+              {copy.pickSlot}
             </button>
             <button
               className={`segment-button ${mode === "zoom" ? "active" : ""}`}
@@ -554,15 +776,16 @@ export function PublicScheduler() {
               }}
             >
               <Link size={16} />
-              貼上 Zoom
+              {copy.pasteZoom}
             </button>
           </div>
 
           {mode === "calendar" ? (
             <div className="form-stack">
-              <SelectedSlotsSummary slots={selectedSlots} onRemove={removeSelectedSlot} />
+              <SelectedSlotsSummary copy={copy} language={language} slots={selectedSlots} onRemove={removeSelectedSlot} />
               <BookingFields
                 bookerName={bookerName}
+                copy={copy}
                 notes={notes}
                 zoomJoinUrl={zoomJoinUrl}
                 setBookerName={setBookerName}
@@ -571,6 +794,7 @@ export function PublicScheduler() {
               />
               <AttachmentField
                 attachments={attachments}
+                copy={copy}
                 error={attachmentError}
                 inputKey={attachmentInputKey}
                 onChange={(files) => void handleAttachmentChange(files)}
@@ -583,21 +807,22 @@ export function PublicScheduler() {
                 onClick={submitManual}
               >
                 <Check size={17} />
-                {selectedSlots.length > 1 ? `確認 ${selectedSlots.length} 個時段` : "確認手動預約"}
+                {selectedSlots.length > 1 ? copy.confirmSlotCount(selectedSlots.length) : copy.confirmManualBooking}
               </button>
             </div>
           ) : (
             <div className="form-stack">
               <label className="field">
-                <span>Zoom 邀請內容</span>
+                <span>{copy.zoomInviteText}</span>
                 <textarea
-                  placeholder="貼上完整 Zoom 邀請內容，系統會自動抓取會議時間與連結。"
+                  placeholder={copy.zoomInvitePlaceholder}
                   value={zoomText}
                   onChange={(event) => setZoomText(event.target.value)}
                 />
               </label>
               <AttachmentField
                 attachments={attachments}
+                copy={copy}
                 error={attachmentError}
                 inputKey={attachmentInputKey}
                 onChange={(files) => void handleAttachmentChange(files)}
@@ -605,7 +830,7 @@ export function PublicScheduler() {
               />
               <button className="primary-button" disabled={loading || !zoomText.trim()} type="button" onClick={() => void openZoomConfirmation()}>
                 <Send size={17} />
-                提交 Zoom 預約
+                {copy.submitZoomBooking}
               </button>
             </div>
           )}
@@ -616,6 +841,8 @@ export function PublicScheduler() {
         {preview ? (
           <ZoomConfirmationDialog
             available={previewAvailable}
+            copy={copy}
+            language={language}
             loading={loading}
             message={message}
             preview={preview}
@@ -630,6 +857,7 @@ export function PublicScheduler() {
         {showMissingZoomConfirm ? (
           <MissingZoomConfirmationDialog
             loading={loading}
+            copy={copy}
             slotCount={selectedSlots.length}
             onCancel={() => setShowMissingZoomConfirm(false)}
             onConfirm={() => void submitManualBookings({ allowMissingZoom: true })}
@@ -681,8 +909,11 @@ function buildWeekRange(currentWeekStartYmd: string, weekOffset: number): { from
   return { fromYmd, toYmd: addDaysToYmd(fromYmd, 6) };
 }
 
-function formatDateKeyShort(ymd: string): string {
+function formatDateKeyShort(ymd: string, language: Language): string {
   const [, month, day] = ymd.split("-").map(Number);
+  if (language === "en") {
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${ymd}T12:00:00Z`));
+  }
   return `${month}月${day}日`;
 }
 
@@ -706,30 +937,59 @@ function getEtParts(iso: string): { year: number; month: number; day: number; ho
   };
 }
 
-function formatEtTime(iso: string): string {
+function formatEtTime(iso: string, language: Language): string {
+  if (language === "en") {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: EASTERN_TIME_ZONE,
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(iso));
+  }
   const parts = getEtParts(iso);
   const period = parts.hour < 6 ? "凌晨" : parts.hour < 12 ? "早上" : parts.hour < 18 ? "下午" : "晚上";
   const hour = parts.hour % 12 || 12;
   return `${period} ${hour}:${String(parts.minute).padStart(2, "0")}`;
 }
 
-function formatEtTimeRange(startIso: string, endIso: string): string {
-  return `${formatEtTime(startIso)} - ${formatEtTime(endIso)}（美東）`;
+function formatEtTimeRange(startIso: string, endIso: string, language: Language): string {
+  const suffix = publicCopy[language].etSuffix;
+  return `${formatEtTime(startIso, language)} - ${formatEtTime(endIso, language)}${suffix}`;
 }
 
-function formatEtDateTimeRange(startIso: string, endIso: string): string {
+function formatEtDateTimeRange(startIso: string, endIso: string, language: Language): string {
   const start = getEtParts(startIso);
   const end = getEtParts(endIso);
   const sameDay = start.year === end.year && start.month === end.month && start.day === end.day;
+  if (language === "en") {
+    const startDate = new Intl.DateTimeFormat("en-US", {
+      timeZone: EASTERN_TIME_ZONE,
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(startIso));
+    if (sameDay) {
+      return `${startDate}, ${formatEtTimeRange(startIso, endIso, language)}`;
+    }
+    const endDate = new Intl.DateTimeFormat("en-US", {
+      timeZone: EASTERN_TIME_ZONE,
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }).format(new Date(endIso));
+    return `${startDate}, ${formatEtTime(startIso, language)} - ${endDate}, ${formatEtTime(endIso, language)} ET`;
+  }
   const startDate = `${start.year}年${start.month}月${start.day}日`;
   if (sameDay) {
-    return `${startDate} ${formatEtTimeRange(startIso, endIso)}`;
+    return `${startDate} ${formatEtTimeRange(startIso, endIso, language)}`;
   }
-  return `${startDate} ${formatEtTime(startIso)} - ${end.year}年${end.month}月${end.day}日 ${formatEtTime(endIso)}（美東）`;
+  return `${startDate} ${formatEtTime(startIso, language)} - ${end.year}年${end.month}月${end.day}日 ${formatEtTime(endIso, language)}（美東）`;
 }
 
-function formatDateKeyLong(ymd: string): string {
+function formatDateKeyLong(ymd: string, language: Language): string {
   const [year, month, day] = ymd.split("-").map(Number);
+  if (language === "en") {
+    return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(new Date(`${ymd}T12:00:00Z`));
+  }
   return `${year}年${month}月${day}日`;
 }
 
@@ -737,12 +997,60 @@ function compareSlotsByStart(left: PublicSlot, right: PublicSlot): number {
   return left.startAtUtc.localeCompare(right.startAtUtc);
 }
 
-function SelectedSlotsSummary({ slots, onRemove }: { slots: PublicSlot[]; onRemove: (slotId: string) => void }) {
+function getZoomTimeZoneLabel(value: string, language: Language, fallback: string): string {
+  if (language === "zh") {
+    return fallback;
+  }
+  const labels: Record<string, string> = {
+    "America/New_York": "Eastern Time (ET)",
+    "America/Los_Angeles": "Pacific Time (PT)",
+    "America/Chicago": "Central Time (CT)",
+    "America/Denver": "Mountain Time (MT)",
+    "Asia/Taipei": "Taipei Time",
+  };
+  return labels[value] || fallback;
+}
+
+function translateServerMessage(message: string, language: Language): string {
+  if (language === "zh") {
+    return message;
+  }
+  const translations: Record<string, string> = {
+    "無法載入可預約時段。": "Unable to load available times.",
+    "無法解析 Zoom 邀請。": "Unable to parse the Zoom invite.",
+    "預約失敗。": "Booking failed.",
+    "請先確認 Zoom 邀請的原始時區。": "Please confirm the original time zone of the Zoom invite first.",
+    "Zoom 邀請中找不到有效的 Zoom 連結。": "No valid Zoom link was found in the invite.",
+    "不支援的會議時區。": "This meeting time zone is not supported.",
+    "不能預約已經過去或已開始的時間。": "You cannot book a time that has already passed or started.",
+    "這個時段不可預約。": "This time is unavailable.",
+    "這個時段剛剛已被預約。": "This time was just booked.",
+    "Zoom 連結格式不正確。": "The Zoom link format is invalid.",
+    "請提供開始與結束時間。": "Please provide a start and end time.",
+    "請填寫姓名。": "Please enter your name.",
+    "這個時段與其他預約衝突。": "This time conflicts with another booking.",
+    "請先確認 Zoom 邀請內容與可預約時間。": "Please confirm the Zoom invite details and availability first.",
+    "已選時段中有時間剛剛被預約，請重新選擇。": "One of the selected times was just booked. Please choose again.",
+  };
+  return translations[message] || message;
+}
+
+function SelectedSlotsSummary({
+  copy,
+  language,
+  slots,
+  onRemove,
+}: {
+  copy: PublicCopy;
+  language: Language;
+  slots: PublicSlot[];
+  onRemove: (slotId: string) => void;
+}) {
   if (!slots.length) {
     return (
       <div className="info-strip muted-strip">
         <AlertCircle size={17} />
-        <span>請先從行事曆選擇一個或多個可預約時段。</span>
+        <span>{copy.selectedSlotPrompt}</span>
       </div>
     );
   }
@@ -752,17 +1060,20 @@ function SelectedSlotsSummary({ slots, onRemove }: { slots: PublicSlot[]; onRemo
   return (
     <div className="preview-card selected-summary">
       <div className="selected-summary-head">
-        <span>已選時段</span>
-        <strong>{slots.length} 個</strong>
+        <span>{copy.selectedSlots}</span>
+        <strong>{copy.selectedCount(slots.length)}</strong>
       </div>
       <div className="selected-slots-list">
         {sortedSlots.map((slot) => (
           <div className="selected-slot-row" key={slot.id}>
             <div>
-              <strong>{slot.weekdayLabel}，{slot.dateLabel}</strong>
-              <span>{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc)}</span>
+              <strong>
+                {weekdayLabels[language][ymdToWeekday(slot.dateKey)]}{language === "zh" ? "，" : ", "}
+                {formatDateKeyShort(slot.dateKey, language)}
+              </strong>
+              <span>{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}</span>
             </div>
-            <button className="icon-button" title="移除時段" type="button" onClick={() => onRemove(slot.id)}>
+            <button className="icon-button" title={copy.removeSlotTitle} type="button" onClick={() => onRemove(slot.id)}>
               <X size={16} />
             </button>
           </div>
@@ -774,6 +1085,7 @@ function SelectedSlotsSummary({ slots, onRemove }: { slots: PublicSlot[]; onRemo
 
 function BookingFields(props: {
   bookerName: string;
+  copy: PublicCopy;
   zoomJoinUrl: string;
   notes: string;
   setBookerName: (value: string) => void;
@@ -783,14 +1095,14 @@ function BookingFields(props: {
   return (
     <>
       <label className="field">
-        <span>姓名</span>
+        <span>{props.copy.name}</span>
         <div className="input-with-icon">
           <User size={16} />
           <input autoComplete="name" value={props.bookerName} onChange={(event) => props.setBookerName(event.target.value)} />
         </div>
       </label>
       <label className="field">
-        <span>Zoom 連結</span>
+        <span>{props.copy.zoomLink}</span>
         <div className="input-with-icon">
           <Link size={16} />
           <input
@@ -802,8 +1114,8 @@ function BookingFields(props: {
         </div>
       </label>
       <label className="field">
-        <span>備註</span>
-        <input placeholder="可選填會議背景或補充資訊" value={props.notes} onChange={(event) => props.setNotes(event.target.value)} />
+        <span>{props.copy.notes}</span>
+        <input placeholder={props.copy.notesPlaceholder} value={props.notes} onChange={(event) => props.setNotes(event.target.value)} />
       </label>
     </>
   );
@@ -811,6 +1123,7 @@ function BookingFields(props: {
 
 function AttachmentField(props: {
   attachments: AttachmentState[];
+  copy: PublicCopy;
   error: string | null;
   inputKey: number;
   onChange: (files: FileList | null) => void;
@@ -818,7 +1131,7 @@ function AttachmentField(props: {
 }) {
   return (
     <label className="field">
-      <span>附件</span>
+      <span>{props.copy.attachments}</span>
       <div className="file-upload-row">
         <div className="input-with-icon">
           <FileText size={16} />
@@ -837,56 +1150,66 @@ function AttachmentField(props: {
               <span>
                 {attachment.fileName}（{formatFileSize(attachment.sizeBytes)}）
               </span>
-              <button className="icon-button" title="移除附件" type="button" onClick={() => props.onRemove(index)}>
+              <button className="icon-button" title={props.copy.removeAttachmentTitle} type="button" onClick={() => props.onRemove(index)}>
                 <X size={16} />
               </button>
             </div>
           ))}
         </div>
       ) : (
-        <p className="field-help">可選填，最多 5MB。</p>
+        <p className="field-help">{props.copy.attachmentHelp}</p>
       )}
       {props.error ? <p className="field-error">{props.error}</p> : null}
     </label>
   );
 }
 
-function ZoomPreview({ available, preview }: { available: boolean | null; preview: ParsedZoomInvite }) {
+function ZoomPreview({
+  available,
+  copy,
+  language,
+  preview,
+}: {
+  available: boolean | null;
+  copy: PublicCopy;
+  language: Language;
+  preview: ParsedZoomInvite;
+}) {
   return (
     <div className="preview-card">
       <div className={`status-line ${available && preview.timeZoneConfirmed ? "success" : "warning"}`}>
         {available && preview.timeZoneConfirmed ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
-        <strong>{!preview.timeZoneConfirmed ? "請先確認原始時區" : available ? "可預約" : "此時段不可預約"}</strong>
+        <strong>{!preview.timeZoneConfirmed ? copy.confirmTimezone : available ? copy.availableToBook : copy.unavailableToBook}</strong>
       </div>
       <div className="preview-row">
-        <span>邀請人</span>
-        <strong>{preview.invitedByName || "未提供"}</strong>
+        <span>{copy.invitedBy}</span>
+        <strong>{preview.invitedByName || copy.notProvided}</strong>
       </div>
       <div className="preview-row">
-        <span>主題</span>
+        <span>{copy.topic}</span>
         <strong>{preview.title}</strong>
       </div>
       <div className="preview-row">
-        <span>原始時間</span>
+        <span>{copy.originalTime}</span>
         <strong>{preview.originalTimeText}</strong>
       </div>
       <div className="preview-row">
-        <span>美東時間</span>
-        <strong>{formatEtDateTimeRange(preview.startAtUtc, preview.endAtUtc)}</strong>
+        <span>{copy.easternTime}</span>
+        <strong>{formatEtDateTimeRange(preview.startAtUtc, preview.endAtUtc, language)}</strong>
       </div>
       <div className="preview-row">
-        <span>Zoom 連結</span>
+        <span>{copy.zoomLink}</span>
         <a href={preview.zoomJoinUrl || "#"} rel="noreferrer" target="_blank">
-          {preview.zoomJoinUrl || "未找到連結"}
+          {preview.zoomJoinUrl || copy.linkNotFound}
         </a>
       </div>
       <div className="preview-row">
-        <span>會議號</span>
-        <strong>{preview.meetingId || "無"}</strong>
+        <span>{copy.meetingId}</span>
+        <strong>{preview.meetingId || copy.noValue}</strong>
       </div>
       <div className="preview-row">
-        <span>密碼</span>
-        <strong>{preview.passcode || "無"}</strong>
+        <span>{copy.passcode}</span>
+        <strong>{preview.passcode || copy.noValue}</strong>
       </div>
     </div>
   );
@@ -894,6 +1217,8 @@ function ZoomPreview({ available, preview }: { available: boolean | null; previe
 
 function ZoomConfirmationDialog(props: {
   available: boolean | null;
+  copy: PublicCopy;
+  language: Language;
   loading: boolean;
   message: BookingMessage | null;
   preview: ParsedZoomInvite;
@@ -907,10 +1232,10 @@ function ZoomConfirmationDialog(props: {
   const requiresTimeZoneSelection = props.preview.timeZoneSource !== "invite";
   const canConfirm = props.available === true && props.preview.timeZoneConfirmed;
   const dialogTitle = !props.preview.timeZoneConfirmed
-    ? "請確認會議原始時區"
+    ? props.copy.chooseOriginalTimezone
     : canConfirm
-      ? "確認預約資訊"
-      : "這個時間目前無法預約";
+      ? props.copy.confirmBookingInfo
+      : props.copy.timeUnavailable;
   return (
     <div className="dialog-backdrop" role="presentation" onClick={props.onCancel}>
       <section
@@ -922,44 +1247,46 @@ function ZoomConfirmationDialog(props: {
       >
         <div className="dialog-header">
           <div>
-            <span className="section-kicker">Zoom 預約</span>
+            <span className="section-kicker">{props.copy.zoomBooking}</span>
             <h2 id="zoom-confirmation-title">{dialogTitle}</h2>
           </div>
-          <button aria-label="關閉確認視窗" className="icon-button" type="button" onClick={props.onCancel}>
+          <button aria-label={props.copy.closeDialogLabel} className="icon-button" type="button" onClick={props.onCancel}>
             <X size={18} />
           </button>
         </div>
 
-        <ZoomPreview available={props.available} preview={props.preview} />
+        <ZoomPreview available={props.available} copy={props.copy} language={props.language} preview={props.preview} />
         {requiresTimeZoneSelection ? (
           <label className="field timezone-confirmation">
-            <span>會議原始時區</span>
+            <span>{props.copy.sourceTimezone}</span>
             <select
               disabled={props.loading}
               value={props.selectedSourceTimeZone}
               onChange={(event) => props.onSourceTimeZoneChange(event.target.value)}
             >
-              <option value="">請選擇邀請使用的時區</option>
+              <option value="">{props.copy.chooseInviteTimezone}</option>
               {ZOOM_TIME_ZONE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
-                  {option.label}
+                  {getZoomTimeZoneLabel(option.value, props.language, option.label)}
                 </option>
               ))}
             </select>
-            <p className="field-help">選擇後系統會重新計算美東時間與可預約狀態。</p>
+            <p className="field-help">{props.copy.timezoneHelp}</p>
           </label>
         ) : null}
         {props.message ? <div className={`message ${props.message.type}`}>{props.message.text}</div> : null}
-        {!canConfirm && props.preview.timeZoneConfirmed && props.suggestions.length ? <Suggestions slots={props.suggestions} onPick={props.onPickSuggestion} /> : null}
+        {!canConfirm && props.preview.timeZoneConfirmed && props.suggestions.length ? (
+          <Suggestions copy={props.copy} language={props.language} slots={props.suggestions} onPick={props.onPickSuggestion} />
+        ) : null}
 
         <div className="dialog-actions">
           <button className="ghost-button" disabled={props.loading} type="button" onClick={props.onCancel}>
-            {canConfirm ? "取消" : "關閉"}
+            {canConfirm ? props.copy.cancel : props.copy.close}
           </button>
           {canConfirm ? (
             <button className="primary-button" disabled={props.loading} type="button" onClick={props.onConfirm}>
               <Check size={17} />
-              確認並預約
+              {props.copy.confirmAndBook}
             </button>
           ) : null}
         </div>
@@ -970,6 +1297,7 @@ function ZoomConfirmationDialog(props: {
 
 function MissingZoomConfirmationDialog(props: {
   loading: boolean;
+  copy: PublicCopy;
   slotCount: number;
   onCancel: () => void;
   onConfirm: () => void;
@@ -985,10 +1313,10 @@ function MissingZoomConfirmationDialog(props: {
       >
         <div className="dialog-header">
           <div>
-            <span className="section-kicker">手動預約</span>
-            <h2 id="missing-zoom-confirmation-title">未提供 Zoom 連結</h2>
+            <span className="section-kicker">{props.copy.manualBooking}</span>
+            <h2 id="missing-zoom-confirmation-title">{props.copy.missingZoomTitle}</h2>
           </div>
-          <button aria-label="關閉確認視窗" className="icon-button" disabled={props.loading} type="button" onClick={props.onCancel}>
+          <button aria-label={props.copy.closeDialogLabel} className="icon-button" disabled={props.loading} type="button" onClick={props.onCancel}>
             <X size={18} />
           </button>
         </div>
@@ -996,20 +1324,20 @@ function MissingZoomConfirmationDialog(props: {
         <div className="preview-card">
           <div className="status-line warning">
             <AlertCircle size={17} />
-            <strong>這次預約沒有 Zoom 連結。</strong>
+            <strong>{props.copy.missingZoomWarning}</strong>
           </div>
           <p className="dialog-copy">
-            系統仍會建立 {props.slotCount} 個預約並封鎖時段，但管理員之後可能需要補上會議連結。
+            {props.copy.missingZoomCopy(props.slotCount)}
           </p>
         </div>
 
         <div className="dialog-actions">
           <button className="ghost-button" disabled={props.loading} type="button" onClick={props.onCancel}>
-            返回補連結
+            {props.copy.backToAddLink}
           </button>
           <button className="primary-button" disabled={props.loading} type="button" onClick={props.onConfirm}>
             <Check size={17} />
-            仍然送出
+            {props.copy.submitAnyway}
           </button>
         </div>
       </section>
@@ -1017,18 +1345,22 @@ function MissingZoomConfirmationDialog(props: {
   );
 }
 
-function Suggestions(props: { slots: PublicSlot[]; onPick: (slot: PublicSlot) => void }) {
+function Suggestions(props: { copy: PublicCopy; language: Language; slots: PublicSlot[]; onPick: (slot: PublicSlot) => void }) {
   return (
     <div className="suggestion-box">
       <div className="suggestion-heading">
-        <span>可改選時段</span>
-        <small>{availabilityWindow}</small>
+        <span>{props.copy.alternativeTimes}</span>
+        <small>{props.copy.availabilityWindow}</small>
       </div>
       <div className="slot-list">
         {props.slots.slice(0, 4).map((slot) => (
           <button className="slot-button" key={slot.id} type="button" onClick={() => props.onPick(slot)}>
             <Clock size={15} />
-            <span>{slot.dateLabel}，{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc)}</span>
+            <span>
+              {formatDateKeyShort(slot.dateKey, props.language)}
+              {props.language === "zh" ? "，" : ", "}
+              {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, props.language)}
+            </span>
           </button>
         ))}
       </div>
