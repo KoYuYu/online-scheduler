@@ -1,6 +1,14 @@
 import crypto from "node:crypto";
 import { Pool, type PoolClient } from "pg";
-import type { AvailabilityRule, Booking, BookingAttachment, BookingAttachmentInput, BookingInput } from "@/lib/types";
+import type {
+  AvailabilityRule,
+  Booking,
+  BookingAttachment,
+  BookingAttachmentInput,
+  BookingInput,
+  PushSubscriptionInput,
+  PushSubscriptionRecord,
+} from "@/lib/types";
 
 type AdminUser = {
   id: string;
@@ -65,6 +73,8 @@ function mapBooking(row: Record<string, unknown>, attachments: BookingAttachment
     attachments: finalAttachments,
     reminder24hSentAt: row.reminder_24h_sent_at ? new Date(row.reminder_24h_sent_at as string).toISOString() : null,
     reminder24hLastError: (row.reminder_24h_last_error as string | null) || null,
+    reminder1hSentAt: row.reminder_1h_sent_at ? new Date(row.reminder_1h_sent_at as string).toISOString() : null,
+    reminder1hLastError: (row.reminder_1h_last_error as string | null) || null,
     status: row.status as Booking["status"],
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
@@ -80,6 +90,19 @@ function mapRule(row: Record<string, unknown>): AvailabilityRule {
     slotMinutes: Number(row.slot_minutes),
     timezone: String(row.timezone),
     isActive: Boolean(row.is_active),
+    createdAt: new Date(row.created_at as string).toISOString(),
+    updatedAt: new Date(row.updated_at as string).toISOString(),
+  };
+}
+
+function mapPushSubscription(row: Record<string, unknown>): PushSubscriptionRecord {
+  return {
+    id: String(row.id),
+    endpoint: String(row.endpoint),
+    p256dh: String(row.p256dh),
+    auth: String(row.auth),
+    userAgent: (row.user_agent as string | null) || null,
+    lastError: (row.last_error as string | null) || null,
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
   };
@@ -440,9 +463,77 @@ export class PostgresStore {
     return booking || null;
   }
 
+  async markBookingReminder1hSent(id: string, sentAt: string): Promise<Booking | null> {
+    const result = await this.pool.query(
+      `UPDATE bookings
+       SET reminder_1h_sent_at = COALESCE(reminder_1h_sent_at, $2::timestamptz),
+           reminder_1h_last_error = NULL,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [id, sentAt]
+    );
+    const [booking] = await this.mapBookingsWithAttachments(result.rows);
+    return booking || null;
+  }
+
+  async markBookingReminder1hFailed(id: string, error: string): Promise<Booking | null> {
+    const result = await this.pool.query(
+      `UPDATE bookings
+       SET reminder_1h_last_error = $2,
+           updated_at = now()
+       WHERE id = $1 AND reminder_1h_sent_at IS NULL
+       RETURNING *`,
+      [id, error.slice(0, 1000)]
+    );
+    const [booking] = await this.mapBookingsWithAttachments(result.rows);
+    return booking || null;
+  }
+
   async deleteBooking(id: string): Promise<boolean> {
     const result = await this.pool.query("DELETE FROM bookings WHERE id = $1", [id]);
     return Boolean(result.rowCount);
+  }
+
+  async listPushSubscriptions(): Promise<PushSubscriptionRecord[]> {
+    const result = await this.pool.query("SELECT * FROM push_subscriptions ORDER BY updated_at DESC");
+    return result.rows.map(mapPushSubscription);
+  }
+
+  async upsertPushSubscription(input: PushSubscriptionInput): Promise<PushSubscriptionRecord> {
+    const result = await this.pool.query(
+      `INSERT INTO push_subscriptions (id, endpoint, p256dh, auth, user_agent)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (endpoint) DO UPDATE
+       SET p256dh = EXCLUDED.p256dh,
+           auth = EXCLUDED.auth,
+           user_agent = EXCLUDED.user_agent,
+           last_error = NULL,
+           updated_at = now()
+       RETURNING *`,
+      [crypto.randomUUID(), input.endpoint, input.keys.p256dh, input.keys.auth, input.userAgent || null]
+    );
+    return mapPushSubscription(result.rows[0]);
+  }
+
+  async deletePushSubscription(id: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM push_subscriptions WHERE id = $1", [id]);
+    return Boolean(result.rowCount);
+  }
+
+  async deletePushSubscriptionByEndpoint(endpoint: string): Promise<boolean> {
+    const result = await this.pool.query("DELETE FROM push_subscriptions WHERE endpoint = $1", [endpoint]);
+    return Boolean(result.rowCount);
+  }
+
+  async markPushSubscriptionError(id: string, error: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE push_subscriptions
+       SET last_error = $2,
+           updated_at = now()
+       WHERE id = $1`,
+      [id, error.slice(0, 1000)]
+    );
   }
 
   async countAdminUsers(): Promise<number> {

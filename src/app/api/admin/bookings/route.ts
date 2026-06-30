@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
+import { queueBookingCreatedPush } from "@/lib/push";
 import { queueBookingReminderIfDue } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 import type { BookingInput } from "@/lib/types";
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest) {
       rawInviteText: body.rawInviteText || null,
       attachments,
     });
+    queueBookingCreatedPush(booking);
     queueBookingReminderIfDue(booking);
     return NextResponse.json({ booking });
   } catch (error) {

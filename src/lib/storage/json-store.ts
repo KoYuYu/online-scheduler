@@ -1,7 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { AvailabilityRule, Booking, BookingAttachment, BookingAttachmentInput, BookingInput } from "@/lib/types";
+import type {
+  AvailabilityRule,
+  Booking,
+  BookingAttachment,
+  BookingAttachmentInput,
+  BookingInput,
+  PushSubscriptionInput,
+  PushSubscriptionRecord,
+} from "@/lib/types";
 import { overlaps } from "@/lib/availability";
 import { EASTERN_TIME_ZONE } from "@/lib/time";
 
@@ -16,6 +24,7 @@ type JsonData = {
   availabilityRules: AvailabilityRule[];
   bookings: Booking[];
   adminUsers: AdminUser[];
+  pushSubscriptions: PushSubscriptionRecord[];
 };
 
 let memoryData: JsonData | null = null;
@@ -75,6 +84,25 @@ function normalizeBooking(booking: Booking): Booking {
     attachments,
     reminder24hSentAt: booking.reminder24hSentAt || null,
     reminder24hLastError: booking.reminder24hLastError || null,
+    reminder1hSentAt: booking.reminder1hSentAt || null,
+    reminder1hLastError: booking.reminder1hLastError || null,
+  };
+}
+
+function normalizePushSubscription(subscription: Partial<PushSubscriptionRecord>): PushSubscriptionRecord | null {
+  if (!subscription.endpoint || !subscription.p256dh || !subscription.auth) {
+    return null;
+  }
+  const timestamp = nowIso();
+  return {
+    id: subscription.id || crypto.randomUUID(),
+    endpoint: subscription.endpoint,
+    p256dh: subscription.p256dh,
+    auth: subscription.auth,
+    userAgent: subscription.userAgent || null,
+    lastError: subscription.lastError || null,
+    createdAt: subscription.createdAt || timestamp,
+    updatedAt: subscription.updatedAt || timestamp,
   };
 }
 
@@ -109,12 +137,21 @@ async function readData(): Promise<JsonData> {
 
   try {
     const raw = await fs.readFile(getDataPath(), "utf8");
-    return JSON.parse(raw) as JsonData;
+    const parsed = JSON.parse(raw) as Partial<JsonData>;
+    return {
+      availabilityRules: parsed.availabilityRules || defaultRules(),
+      bookings: parsed.bookings || [],
+      adminUsers: parsed.adminUsers || [],
+      pushSubscriptions: (parsed.pushSubscriptions || [])
+        .map((subscription) => normalizePushSubscription(subscription))
+        .filter((subscription): subscription is PushSubscriptionRecord => Boolean(subscription)),
+    };
   } catch {
     const data: JsonData = {
       availabilityRules: defaultRules(),
       bookings: [],
       adminUsers: [],
+      pushSubscriptions: [],
     };
     await writeData(data);
     return data;
@@ -246,6 +283,8 @@ export class JsonStore {
       attachments,
       reminder24hSentAt: null,
       reminder24hLastError: null,
+      reminder1hSentAt: null,
+      reminder1hLastError: null,
       status: "confirmed",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -332,12 +371,101 @@ export class JsonStore {
     return data.bookings[index];
   }
 
+  async markBookingReminder1hSent(id: string, sentAt: string): Promise<Booking | null> {
+    const data = await readData();
+    const index = data.bookings.findIndex((booking) => booking.id === id);
+    if (index < 0) {
+      return null;
+    }
+    data.bookings[index] = normalizeBooking({
+      ...data.bookings[index],
+      reminder1hSentAt: data.bookings[index].reminder1hSentAt || sentAt,
+      reminder1hLastError: null,
+      updatedAt: nowIso(),
+    });
+    await writeData(data);
+    return data.bookings[index];
+  }
+
+  async markBookingReminder1hFailed(id: string, error: string): Promise<Booking | null> {
+    const data = await readData();
+    const index = data.bookings.findIndex((booking) => booking.id === id);
+    if (index < 0) {
+      return null;
+    }
+    if (data.bookings[index].reminder1hSentAt) {
+      return normalizeBooking(data.bookings[index]);
+    }
+    data.bookings[index] = normalizeBooking({
+      ...data.bookings[index],
+      reminder1hLastError: error.slice(0, 1000),
+      updatedAt: nowIso(),
+    });
+    await writeData(data);
+    return data.bookings[index];
+  }
+
   async deleteBooking(id: string): Promise<boolean> {
     const data = await readData();
     const before = data.bookings.length;
     data.bookings = data.bookings.filter((booking) => booking.id !== id);
     await writeData(data);
     return data.bookings.length !== before;
+  }
+
+  async listPushSubscriptions(): Promise<PushSubscriptionRecord[]> {
+    const data = await readData();
+    return data.pushSubscriptions
+      .map((subscription) => normalizePushSubscription(subscription))
+      .filter((subscription): subscription is PushSubscriptionRecord => Boolean(subscription))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  async upsertPushSubscription(input: PushSubscriptionInput): Promise<PushSubscriptionRecord> {
+    const data = await readData();
+    const timestamp = nowIso();
+    const existing = data.pushSubscriptions.find((subscription) => subscription.endpoint === input.endpoint);
+    const subscription: PushSubscriptionRecord = {
+      id: existing?.id || crypto.randomUUID(),
+      endpoint: input.endpoint,
+      p256dh: input.keys.p256dh,
+      auth: input.keys.auth,
+      userAgent: input.userAgent || null,
+      lastError: null,
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+    if (existing) {
+      data.pushSubscriptions = data.pushSubscriptions.map((current) => (current.id === existing.id ? subscription : current));
+    } else {
+      data.pushSubscriptions.push(subscription);
+    }
+    await writeData(data);
+    return subscription;
+  }
+
+  async deletePushSubscription(id: string): Promise<boolean> {
+    const data = await readData();
+    const before = data.pushSubscriptions.length;
+    data.pushSubscriptions = data.pushSubscriptions.filter((subscription) => subscription.id !== id);
+    await writeData(data);
+    return data.pushSubscriptions.length !== before;
+  }
+
+  async deletePushSubscriptionByEndpoint(endpoint: string): Promise<boolean> {
+    const data = await readData();
+    const before = data.pushSubscriptions.length;
+    data.pushSubscriptions = data.pushSubscriptions.filter((subscription) => subscription.endpoint !== endpoint);
+    await writeData(data);
+    return data.pushSubscriptions.length !== before;
+  }
+
+  async markPushSubscriptionError(id: string, error: string): Promise<void> {
+    const data = await readData();
+    data.pushSubscriptions = data.pushSubscriptions.map((subscription) =>
+      subscription.id === id ? { ...subscription, lastError: error.slice(0, 1000), updatedAt: nowIso() } : subscription
+    );
+    await writeData(data);
   }
 
   async countAdminUsers(): Promise<number> {

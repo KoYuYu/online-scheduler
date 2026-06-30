@@ -1,4 +1,4 @@
-const CACHE_NAME = "online-scheduler-pwa-v2";
+const CACHE_NAME = "online-scheduler-pwa-v3";
 const APP_SHELL_URLS = [
   "/",
   "/offline.html",
@@ -52,6 +52,29 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+self.addEventListener("push", (event) => {
+  const payload = readPushPayload(event);
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: payload.icon || "/icons/app-icon-fashion-192.png",
+      badge: payload.badge || "/icons/app-icon-fashion-192.png",
+      tag: payload.tag || "online-scheduler-admin",
+      data: {
+        url: payload.url || "/admin",
+        bookingId: payload.bookingId || null,
+        kind: payload.kind || "admin",
+      },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = new URL(event.notification.data?.url || "/admin", self.location.origin).href;
+  event.waitUntil(openOrFocusClient(targetUrl));
+});
+
 function shouldCacheAsset(request, url) {
   return (
     ["style", "script", "worker", "image", "font"].includes(request.destination) ||
@@ -87,4 +110,35 @@ async function staleWhileRevalidate(request) {
     .catch(() => undefined);
 
   return cached || fetched || caches.match("/offline.html");
+}
+
+function readPushPayload(event) {
+  const fallback = {
+    title: "預約系統通知",
+    body: "你有新的預約通知。",
+    url: "/admin",
+  };
+  if (!event.data) {
+    return fallback;
+  }
+
+  try {
+    return { ...fallback, ...event.data.json() };
+  } catch {
+    return { ...fallback, body: event.data.text() || fallback.body };
+  }
+}
+
+async function openOrFocusClient(targetUrl) {
+  const clientList = await clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of clientList) {
+    if ("focus" in client && new URL(client.url).origin === self.location.origin) {
+      await client.focus();
+      if ("navigate" in client) {
+        return client.navigate(targetUrl);
+      }
+      return;
+    }
+  }
+  return clients.openWindow(targetUrl);
 }

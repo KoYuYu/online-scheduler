@@ -32,7 +32,7 @@ async function handleReminderCron(request: Request) {
   const result = await sendDueBookingReminders(getStore());
 
   if (result.failed.length) {
-    console.error("24 小時預約提醒有寄送失敗。", { failed: result.failed });
+    console.error("預約提醒有寄送失敗。", { failed: result.failed });
   }
 
   return NextResponse.json(result, { status: result.failed.length ? 500 : 200 });

@@ -901,6 +901,90 @@ button:disabled {
   gap: 10px;
 }
 
+.push-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.push-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.push-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 760;
+}
+
+.push-status.ready {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #b9e4d0;
+}
+
+.push-status.blocked {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: #edd18a;
+}
+
+.button-row {
+  display: grid;
+  gap: 8px;
+}
+
+.button-row.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.push-device-list {
+  display: grid;
+  gap: 8px;
+}
+
+.push-device {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.push-device div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.push-device strong,
+.push-device span,
+.push-device em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.push-device span {
+  color: var(--muted);
+}
+
+.push-device em {
+  color: var(--red);
+  font-style: normal;
+}
+
 .card-actions {
   display: inline-flex;
   align-items: center;
@@ -1203,7 +1287,9 @@ button:disabled {
 
   .calendar-toolbar,
   .calendar-grid,
+  .button-row.two,
   .form-grid.two,
+  .push-status-grid,
   .availability-form {
     grid-template-columns: 1fr;
   }

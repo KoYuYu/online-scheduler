@@ -9,11 +9,11 @@ function secret(): string {
 }
 
 export function defaultAdminEmail(): string {
-  return process.env.ADMIN_EMAIL || (process.env.DATABASE_URL ? "" : "admin@example.com");
+  return process.env.ADMIN_EMAIL || "";
 }
 
 export function defaultAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD || (process.env.DATABASE_URL ? "" : "password123");
+  return process.env.ADMIN_PASSWORD || "";
 }
 
 export function hashPassword(password: string): string {

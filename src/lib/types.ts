@@ -14,6 +14,26 @@ export type BookingAttachmentInput = {
   dataBase64?: string | null;
 };
 
+export type PushSubscriptionRecord = {
+  id: string;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  userAgent: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PushSubscriptionInput = {
+  endpoint: string;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+  userAgent?: string | null;
+};
+
 export type Booking = {
   id: string;
   source: BookingSource;
@@ -34,6 +54,8 @@ export type Booking = {
   attachments: BookingAttachment[];
   reminder24hSentAt: string | null;
   reminder24hLastError: string | null;
+  reminder1hSentAt: string | null;
+  reminder1hLastError: string | null;
   status: "confirmed" | "cancelled";
   createdAt: string;
   updatedAt: string;

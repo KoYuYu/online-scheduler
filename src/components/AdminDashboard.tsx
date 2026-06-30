@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bell,
   ChevronDown,
   Clock,
   ClipboardPaste,
@@ -12,6 +13,8 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Send,
+  Smartphone,
   Trash2,
   Upload,
   X,
@@ -59,6 +62,15 @@ type BookingEditFormState = {
   removeAttachmentIds: string[];
 };
 
+type AdminPushSubscriptionSummary = {
+  id: string;
+  endpointLabel: string;
+  userAgent: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
@@ -76,12 +88,17 @@ export function AdminDashboard() {
   const [editAttachmentError, setEditAttachmentError] = useState<string | null>(null);
   const [editFileInputKey, setEditFileInputKey] = useState(0);
   const [pastBookingsExpanded, setPastBookingsExpanded] = useState(false);
+  const [pushSubscriptions, setPushSubscriptions] = useState<AdminPushSubscriptionSummary[]>([]);
+  const [pushPublicKey, setPushPublicKey] = useState("");
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushMessage, setPushMessage] = useState<string | null>(null);
 
   async function loadSession() {
     const response = await fetch("/api/admin/session", { cache: "no-store" });
     setAuthenticated(response.ok);
     if (response.ok) {
-      await loadCalendar();
+      await Promise.all([loadCalendar(), loadPushSubscriptions()]);
     }
   }
 
@@ -97,6 +114,7 @@ export function AdminDashboard() {
   }
 
   useEffect(() => {
+    setPushSupported("serviceWorker" in navigator && "PushManager" in window && "Notification" in window);
     void loadSession();
   }, []);
 
@@ -112,7 +130,7 @@ export function AdminDashboard() {
       return;
     }
     setAuthenticated(true);
-    await loadCalendar();
+    await Promise.all([loadCalendar(), loadPushSubscriptions()]);
   }
 
   async function logout() {
@@ -186,6 +204,94 @@ export function AdminDashboard() {
   async function deleteBooking(id: string) {
     await fetch(`/api/admin/bookings/${id}`, { method: "DELETE" });
     await loadCalendar();
+  }
+
+  async function loadPushSubscriptions() {
+    const response = await fetch("/api/admin/push-subscriptions", { cache: "no-store" });
+    if (!response.ok) {
+      return;
+    }
+    const data = (await response.json()) as {
+      publicKey?: string;
+      subscriptions?: AdminPushSubscriptionSummary[];
+    };
+    setPushPublicKey(data.publicKey || "");
+    setPushSubscriptions(data.subscriptions || []);
+  }
+
+  async function enablePushNotifications() {
+    setPushMessage(null);
+    setPushBusy(true);
+    try {
+      if (!pushSupported) {
+        setPushMessage("這個瀏覽器目前不支援推送；iPhone/iPad 需要先把網站加入主畫面後再從 App 開啟後台。");
+        return;
+      }
+      if (!pushPublicKey) {
+        setPushMessage("尚未設定 WEB_PUSH_PUBLIC_KEY / WEB_PUSH_PRIVATE_KEY，請先在 Railway 加上推送金鑰。");
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushMessage("推送權限尚未允許，請在瀏覽器或手機設定中允許通知。");
+        return;
+      }
+
+      const registration = (await navigator.serviceWorker.getRegistration()) || (await navigator.serviceWorker.register("/sw.js"));
+      const readyRegistration = await navigator.serviceWorker.ready;
+      const activeRegistration = registration.active ? registration : readyRegistration;
+      const existingSubscription = await activeRegistration.pushManager.getSubscription();
+      const subscription =
+        existingSubscription ||
+        (await activeRegistration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(pushPublicKey),
+        }));
+
+      const response = await fetch("/api/admin/push-subscriptions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: subscription.toJSON(), userAgent: navigator.userAgent }),
+      });
+      const data = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setPushMessage(data.error || "無法啟用推送。");
+        return;
+      }
+      setPushMessage("此裝置已啟用管理員推送。");
+      await loadPushSubscriptions();
+    } catch (error) {
+      setPushMessage(error instanceof Error ? error.message : "無法啟用推送。");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function sendTestPush() {
+    setPushMessage(null);
+    setPushBusy(true);
+    try {
+      const response = await fetch("/api/admin/push-subscriptions/test", { method: "POST" });
+      const data = (await response.json()) as { sent?: number; skippedReason?: string; error?: string };
+      if (!response.ok) {
+        setPushMessage(data.error || pushSkippedReasonLabel(data.skippedReason) || "測試推送未送出。");
+        return;
+      }
+      setPushMessage(`測試推送已送出到 ${data.sent || 0} 台裝置。`);
+      await loadPushSubscriptions();
+    } catch {
+      setPushMessage("測試推送失敗。");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function deletePushSubscription(id: string) {
+    setPushMessage(null);
+    await fetch(`/api/admin/push-subscriptions/${id}`, { method: "DELETE" });
+    setPushMessage("推送裝置已移除。");
+    await loadPushSubscriptions();
   }
 
   function startEditingBooking(booking: Booking) {
@@ -360,7 +466,7 @@ export function AdminDashboard() {
   }
 
   function renderBookingCard(booking: Booking, options: { past?: boolean } = {}) {
-    const reminderStatus = getReminderStatus(booking);
+    const reminderStatuses = getReminderStatuses(booking);
     return (
       <article className={`booking-card ${options.past ? "past-booking" : ""}`} key={booking.id}>
         <header>
@@ -384,9 +490,11 @@ export function AdminDashboard() {
           <span>{booking.bookerName || "未提供姓名"}</span>
           {booking.invitedByName ? <span>邀請人：{booking.invitedByName}</span> : null}
           <span>{formatSourceLabel(booking.source)}</span>
-          <span className={`reminder-chip ${reminderStatus.tone}`} title={reminderStatus.title}>
-            {reminderStatus.label}
-          </span>
+          {reminderStatuses.map((reminderStatus) => (
+            <span className={`reminder-chip ${reminderStatus.tone}`} key={reminderStatus.label} title={reminderStatus.title}>
+              {reminderStatus.label}
+            </span>
+          ))}
           {options.past ? <span>歷史</span> : null}
           {booking.status === "cancelled" ? <span>已取消</span> : null}
         </div>
@@ -580,6 +688,63 @@ export function AdminDashboard() {
                 <Save size={17} />
                 確認匯入
               </button>
+            </div>
+          </section>
+
+          <section className="surface" aria-labelledby="admin-push-heading">
+            <div className="surface-header slim">
+              <div>
+                <span className="section-kicker">推送</span>
+                <h2 id="admin-push-heading">管理員推送</h2>
+                <p className="muted">只會通知已登入後台並啟用的你的裝置。</p>
+              </div>
+              <Bell size={18} className="muted-icon" />
+            </div>
+            <div className="push-panel">
+              <div className="push-status-grid">
+                <span className={`push-status ${pushSupported ? "ready" : "blocked"}`}>
+                  <Smartphone size={14} />
+                  {pushSupported ? "此瀏覽器支援推送" : "此瀏覽器不支援推送"}
+                </span>
+                <span className={`push-status ${pushPublicKey ? "ready" : "blocked"}`}>
+                  <Bell size={14} />
+                  {pushPublicKey ? "推送金鑰已設定" : "尚未設定推送金鑰"}
+                </span>
+              </div>
+              <div className="button-row two">
+                <button className="primary-button" disabled={pushBusy} type="button" onClick={() => void enablePushNotifications()}>
+                  <Bell size={17} />
+                  啟用此裝置
+                </button>
+                <button className="ghost-button" disabled={pushBusy || !pushSubscriptions.length} type="button" onClick={() => void sendTestPush()}>
+                  <Send size={17} />
+                  測試推送
+                </button>
+              </div>
+              {pushMessage ? <div className="message warning">{pushMessage}</div> : null}
+              <div className="push-device-list">
+                {pushSubscriptions.length ? (
+                  pushSubscriptions.map((subscription) => (
+                    <div className="push-device" key={subscription.id}>
+                      <div>
+                        <strong>{subscription.endpointLabel}</strong>
+                        <span>{formatEtTimestampShort(subscription.updatedAt)} 更新</span>
+                        {subscription.lastError ? <em>{subscription.lastError}</em> : null}
+                      </div>
+                      <button
+                        className="icon-button"
+                        title="移除推送裝置"
+                        type="button"
+                        onClick={() => void deletePushSubscription(subscription.id)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="field-help">尚未啟用任何管理員推送裝置。</p>
+                )}
+              </div>
             </div>
           </section>
 
@@ -842,26 +1007,57 @@ function compareBookingStartDescending(left: Booking, right: Booking): number {
   return new Date(right.startAtUtc).getTime() - new Date(left.startAtUtc).getTime();
 }
 
-function getReminderStatus(booking: Booking): { label: string; tone: "sent" | "pending" | "error" | "muted"; title?: string } {
-  if (booking.reminder24hSentAt) {
-    return { label: `24h 提醒：已寄 ${formatEtTimestampShort(booking.reminder24hSentAt)}`, tone: "sent" };
+function getReminderStatuses(booking: Booking): Array<{ label: string; tone: "sent" | "pending" | "error" | "muted"; title?: string }> {
+  return [
+    getReminderStatus({
+      booking,
+      label: "24h",
+      lookaheadMs: 24 * 60 * 60 * 1000,
+      sentAt: booking.reminder24hSentAt,
+      lastError: booking.reminder24hLastError,
+    }),
+    getReminderStatus({
+      booking,
+      label: "1h",
+      lookaheadMs: 60 * 60 * 1000,
+      sentAt: booking.reminder1hSentAt,
+      lastError: booking.reminder1hLastError,
+    }),
+  ];
+}
+
+function getReminderStatus({
+  booking,
+  label,
+  lookaheadMs,
+  sentAt,
+  lastError,
+}: {
+  booking: Booking;
+  label: string;
+  lookaheadMs: number;
+  sentAt: string | null;
+  lastError: string | null;
+}): { label: string; tone: "sent" | "pending" | "error" | "muted"; title?: string } {
+  if (sentAt) {
+    return { label: `${label} 提醒：已送 ${formatEtTimestampShort(sentAt)}`, tone: "sent" };
   }
-  if (booking.reminder24hLastError) {
-    return { label: "24h 提醒：寄送失敗", tone: "error", title: booking.reminder24hLastError };
+  if (lastError) {
+    return { label: `${label} 提醒：失敗`, tone: "error", title: lastError };
   }
   if (booking.status === "cancelled") {
-    return { label: "24h 提醒：不需寄", tone: "muted" };
+    return { label: `${label} 提醒：不需送`, tone: "muted" };
   }
 
   const startTime = new Date(booking.startAtUtc).getTime();
   const now = Date.now();
   if (startTime <= now) {
-    return { label: "24h 提醒：已過期未寄", tone: "muted" };
+    return { label: `${label} 提醒：已過期未送`, tone: "muted" };
   }
-  if (startTime <= now + 24 * 60 * 60 * 1000) {
-    return { label: "24h 提醒：待寄", tone: "pending" };
+  if (startTime <= now + lookaheadMs) {
+    return { label: `${label} 提醒：待送`, tone: "pending" };
   }
-  return { label: "24h 提醒：未到時間", tone: "muted" };
+  return { label: `${label} 提醒：未到時間`, tone: "muted" };
 }
 
 function formatEtTimestampShort(iso: string): string {
@@ -925,6 +1121,28 @@ function getEditDurationMinutes(form: BookingEditFormState): number {
   } catch {
     return 60;
   }
+}
+
+function urlBase64ToUint8Array(value: string): Uint8Array<ArrayBuffer> {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = `${value}${padding}`.replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const output = new Uint8Array(new ArrayBuffer(rawData.length));
+  for (let index = 0; index < rawData.length; index += 1) {
+    output[index] = rawData.charCodeAt(index);
+  }
+  return output;
+}
+
+function pushSkippedReasonLabel(reason?: string): string | null {
+  if (!reason) {
+    return null;
+  }
+  const labels: Record<string, string> = {
+    web_push_not_configured: "尚未設定 WEB_PUSH_PUBLIC_KEY / WEB_PUSH_PRIVATE_KEY。",
+    no_push_subscriptions: "目前沒有任何已啟用的推送裝置。",
+  };
+  return labels[reason] || reason;
 }
 
 function readFileAsBase64(file: File): Promise<string> {
