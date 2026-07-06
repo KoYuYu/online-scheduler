@@ -3,7 +3,6 @@
 import {
   AlertCircle,
   CalendarCheck,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Check,
@@ -82,6 +81,7 @@ const publicCopy = {
     selectedCount: (count: number) => `${count} 個`,
     removeSlotTitle: "移除時段",
     name: "姓名",
+    topicPlaceholder: "例如：System Design Interview",
     zoomLink: "Zoom 連結",
     notes: "備註",
     notesPlaceholder: "可選填會議背景或補充資訊",
@@ -176,6 +176,7 @@ const publicCopy = {
     selectedCount: (count: number) => `${count} selected`,
     removeSlotTitle: "Remove time",
     name: "Name",
+    topicPlaceholder: "Example: System Design Interview",
     zoomLink: "Zoom Link",
     notes: "Notes",
     notesPlaceholder: "Optional meeting background or extra details",
@@ -251,6 +252,7 @@ export function PublicScheduler() {
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
   const [mode, setMode] = useState<"calendar" | "zoom">("calendar");
   const [bookerName, setBookerName] = useState("");
+  const [bookingTitle, setBookingTitle] = useState("");
   const [zoomJoinUrl, setZoomJoinUrl] = useState("");
   const [notes, setNotes] = useState("");
   const [attachments, setAttachments] = useState<AttachmentState[]>([]);
@@ -340,8 +342,9 @@ export function PublicScheduler() {
   }, [weekOffset]);
 
   useEffect(() => {
-    setExpandedDayKey(null);
-  }, [weekRange.fromYmd]);
+    const defaultDay = weekDays.find((day) => day.isToday) || weekDays[0];
+    setExpandedDayKey(defaultDay?.dateKey || null);
+  }, [weekRange.fromYmd, weekDays]);
 
   const slotsByDate = useMemo(() => {
     const groups = new Map<string, PublicSlot[]>();
@@ -355,6 +358,11 @@ export function PublicScheduler() {
   const availableSlotCount = useMemo(() => slots.filter((slot) => slot.status !== "blocked").length, [slots]);
   const blockedSlotCount = slots.length - availableSlotCount;
   const selectedSlotIds = useMemo(() => new Set(selectedSlots.map((slot) => slot.id)), [selectedSlots]);
+  const activeDay = useMemo(
+    () => weekDays.find((day) => day.dateKey === expandedDayKey) || weekDays.find((day) => day.isToday) || weekDays[0],
+    [expandedDayKey, weekDays]
+  );
+  const activeDaySlots = activeDay ? slotsByDate.get(activeDay.dateKey) || [] : [];
 
   async function requestZoomPreview(sourceTimeZone?: string) {
     setLoading(true);
@@ -418,6 +426,7 @@ export function PublicScheduler() {
       setSelectedSourceTimeZone("");
       setZoomText("");
       setBookerName("");
+      setBookingTitle("");
       setZoomJoinUrl("");
       setNotes("");
       clearAttachments();
@@ -476,6 +485,7 @@ export function PublicScheduler() {
     setShowMissingZoomConfirm(false);
     const attachmentPayload = buildAttachmentPayload(attachments);
     const zoomUrl = zoomJoinUrl.trim() || null;
+    const manualTitle = bookingTitle.trim() || (language === "zh" ? "預約會議" : "Scheduled Meeting");
     let createdCount = 0;
 
     try {
@@ -485,7 +495,7 @@ export function PublicScheduler() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             source: "manual",
-            title: language === "zh" ? "預約會議" : "Scheduled Meeting",
+            title: manualTitle,
             startAtUtc: slot.startAtUtc,
             endAtUtc: slot.endAtUtc,
             bookerName,
@@ -509,6 +519,7 @@ export function PublicScheduler() {
       setMode("calendar");
       setSelectedSlots([]);
       setBookerName("");
+      setBookingTitle("");
       setZoomJoinUrl("");
       setNotes("");
       clearAttachments();
@@ -621,9 +632,6 @@ export function PublicScheduler() {
             <Clock size={15} />
             {copy.slotCadence}
           </span>
-          <a className="ghost-button" href="/admin">
-            {copy.adminLink}
-          </a>
         </div>
       </div>
 
@@ -683,67 +691,76 @@ export function PublicScheduler() {
             </div>
           </div>
 
-          <div className="calendar-grid">
-            {weekDays.map((day) => {
-              const daySlots = slotsByDate.get(day.dateKey) || [];
-              const availableCount = daySlots.filter((slot) => slot.status !== "blocked").length;
-              const blockedCount = daySlots.length - availableCount;
-              const expanded = expandedDayKey === day.dateKey;
-              return (
-                <div className={`day-column ${day.isToday ? "today" : ""} ${expanded ? "expanded" : ""}`} key={day.dateKey}>
+          <div className="public-date-focus-layout">
+            <nav className="date-rail public-date-rail" aria-label={copy.chooseSlotHeading}>
+              {weekDays.map((day) => {
+                const daySlots = slotsByDate.get(day.dateKey) || [];
+                const availableCount = daySlots.filter((slot) => slot.status !== "blocked").length;
+                const blockedCount = daySlots.length - availableCount;
+                const active = activeDay.dateKey === day.dateKey;
+                return (
                   <button
-                    aria-expanded={expanded}
-                    className="day-head"
+                    aria-pressed={active}
+                    className={`${active ? "active" : ""} ${day.isToday ? "today" : ""}`}
+                    key={day.dateKey}
                     type="button"
-                    onClick={() => setExpandedDayKey((current) => (current === day.dateKey ? null : day.dateKey))}
+                    onClick={() => setExpandedDayKey(day.dateKey)}
                   >
-                    <div className="day-head-main">
-                      <div className="day-head-title">
-                        <strong>{day.weekdayLabel}</strong>
-                        {day.isToday ? <span className="today-chip">{copy.todayChip}</span> : null}
-                      </div>
-                      <span>{day.dateLabel}</span>
-                    </div>
-                    <span className="day-slot-summary">
+                    <span>{day.weekdayLabel}</span>
+                    <strong>{day.dateLabel}</strong>
+                    {day.isToday ? <span className="today-chip">{copy.todayChip}</span> : null}
+                    <small>
                       {slotsLoading
                         ? copy.loading
                         : daySlots.length
                           ? `${availableCount} ${copy.availableShort}${blockedCount ? ` / ${blockedCount} ${copy.bookedShort}` : ""}`
                           : copy.noSlots}
-                    </span>
-                    <ChevronDown className="day-toggle-icon" size={16} />
+                    </small>
                   </button>
-                  <div className="slot-list">
-                    {slotsLoading ? (
-                      <div className="no-slots">{copy.loading}...</div>
-                    ) : daySlots.length ? (
-                      daySlots.map((slot) => {
-                        const blocked = slot.status === "blocked";
-                        const selected = selectedSlotIds.has(slot.id);
-                        return (
-                        <button
-                          aria-pressed={selected}
-                          className={`slot-button ${selected ? "selected" : ""} ${blocked ? "blocked" : ""}`}
-                          disabled={blocked}
-                          key={slot.id}
-                          type="button"
-                          onClick={() => toggleSlotSelection(slot)}
-                        >
-                          <Clock size={15} />
-                          <span>
-                            {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}
-                            {blocked ? <small>{copy.booked}</small> : null}
-                          </span>
-                        </button>
-                        );
-                      })
-                    ) : (
-                      <div className="no-slots">{copy.noAvailableSlots}</div>
-                    )}
-                  </div>
+                );
+              })}
+            </nav>
+
+            <section className="slot-focus-panel public-slot-focus" aria-live="polite">
+              <div className="focus-panel-head">
+                <div>
+                  <span className="section-kicker">{activeDay ? formatDateKeyLong(activeDay.dateKey, language) : copy.publicAvailability}</span>
+                  <h3>
+                    {activeDay?.weekdayLabel}
+                    {activeDay?.isToday ? ` · ${copy.todayChip}` : ""}{language === "zh" ? "可預約時段" : " Available Times"}
+                  </h3>
                 </div>
-              );
-            })}
+                <span className="pill">{copy.easternShort}</span>
+              </div>
+              <div className="focus-slot-grid public-focus-slot-grid">
+                {slotsLoading ? (
+                  <div className="no-slots">{copy.loading}...</div>
+                ) : activeDaySlots.length ? (
+                  activeDaySlots.map((slot) => {
+                    const blocked = slot.status === "blocked";
+                    const selected = selectedSlotIds.has(slot.id);
+                    return (
+                      <button
+                        aria-pressed={selected}
+                        className={`slot-button ${selected ? "selected" : ""} ${blocked ? "blocked" : ""}`}
+                        disabled={blocked}
+                        key={slot.id}
+                        type="button"
+                        onClick={() => toggleSlotSelection(slot)}
+                      >
+                        <Clock size={15} />
+                        <span>
+                          {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}
+                          {blocked ? <small>{copy.booked}</small> : null}
+                        </span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="no-slots">{copy.noAvailableSlots}</div>
+                )}
+              </div>
+            </section>
           </div>
         </section>
 
@@ -785,10 +802,12 @@ export function PublicScheduler() {
               <SelectedSlotsSummary copy={copy} language={language} slots={selectedSlots} onRemove={removeSelectedSlot} />
               <BookingFields
                 bookerName={bookerName}
+                bookingTitle={bookingTitle}
                 copy={copy}
                 notes={notes}
                 zoomJoinUrl={zoomJoinUrl}
                 setBookerName={setBookerName}
+                setBookingTitle={setBookingTitle}
                 setNotes={setNotes}
                 setZoomJoinUrl={setZoomJoinUrl}
               />
@@ -864,6 +883,10 @@ export function PublicScheduler() {
           />
         ) : null}
       </section>
+      <footer className="public-footer">
+        <span>{copy.privacyNote}</span>
+        <a href="/admin">{copy.adminLink}</a>
+      </footer>
     </main>
   );
 }
@@ -1085,10 +1108,12 @@ function SelectedSlotsSummary({
 
 function BookingFields(props: {
   bookerName: string;
+  bookingTitle: string;
   copy: PublicCopy;
   zoomJoinUrl: string;
   notes: string;
   setBookerName: (value: string) => void;
+  setBookingTitle: (value: string) => void;
   setZoomJoinUrl: (value: string) => void;
   setNotes: (value: string) => void;
 }) {
@@ -1099,6 +1124,13 @@ function BookingFields(props: {
         <div className="input-with-icon">
           <User size={16} />
           <input autoComplete="name" value={props.bookerName} onChange={(event) => props.setBookerName(event.target.value)} />
+        </div>
+      </label>
+      <label className="field">
+        <span>{props.copy.topic}</span>
+        <div className="input-with-icon">
+          <FileText size={16} />
+          <input placeholder={props.copy.topicPlaceholder} value={props.bookingTitle} onChange={(event) => props.setBookingTitle(event.target.value)} />
         </div>
       </label>
       <label className="field">
