@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         endAtUtc: parsed.endAtUtc,
         bookerName: null,
         bookerEmail: null,
-        notes: null,
+        notes: body.notes?.trim() || null,
         invitedByName: parsed.invitedByName,
         zoomJoinUrl: parsed.zoomJoinUrl,
         meetingId: parsed.meetingId,

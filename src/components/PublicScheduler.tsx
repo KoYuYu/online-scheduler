@@ -545,6 +545,7 @@ export function PublicScheduler() {
       source: "zoom",
       rawInviteText: zoomText,
       sourceTimeZone: selectedSourceTimeZone || undefined,
+      notes,
       ...buildAttachmentPayload(attachments),
     });
   }
@@ -839,6 +840,10 @@ export function PublicScheduler() {
                   onChange={(event) => setZoomText(event.target.value)}
                 />
               </label>
+              <label className="field">
+                <span>{copy.notes}</span>
+                <input placeholder={copy.notesPlaceholder} value={notes} onChange={(event) => setNotes(event.target.value)} />
+              </label>
               <AttachmentField
                 attachments={attachments}
                 copy={copy}
@@ -864,6 +869,7 @@ export function PublicScheduler() {
             language={language}
             loading={loading}
             message={message}
+            notes={notes}
             preview={preview}
             selectedSourceTimeZone={selectedSourceTimeZone}
             suggestions={suggestions}
@@ -1200,13 +1206,16 @@ function ZoomPreview({
   available,
   copy,
   language,
+  notes,
   preview,
 }: {
   available: boolean | null;
   copy: PublicCopy;
   language: Language;
+  notes: string;
   preview: ParsedZoomInvite;
 }) {
+  const trimmedNotes = notes.trim();
   return (
     <div className="preview-card">
       <div className={`status-line ${available && preview.timeZoneConfirmed ? "success" : "warning"}`}>
@@ -1243,6 +1252,12 @@ function ZoomPreview({
         <span>{copy.passcode}</span>
         <strong>{preview.passcode || copy.noValue}</strong>
       </div>
+      {trimmedNotes ? (
+        <div className="preview-row">
+          <span>{copy.notes}</span>
+          <strong>{trimmedNotes}</strong>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1253,6 +1268,7 @@ function ZoomConfirmationDialog(props: {
   language: Language;
   loading: boolean;
   message: BookingMessage | null;
+  notes: string;
   preview: ParsedZoomInvite;
   selectedSourceTimeZone: string;
   suggestions: PublicSlot[];
@@ -1287,7 +1303,7 @@ function ZoomConfirmationDialog(props: {
           </button>
         </div>
 
-        <ZoomPreview available={props.available} copy={props.copy} language={props.language} preview={props.preview} />
+        <ZoomPreview available={props.available} copy={props.copy} language={props.language} notes={props.notes} preview={props.preview} />
         {requiresTimeZoneSelection ? (
           <label className="field timezone-confirmation">
             <span>{props.copy.sourceTimezone}</span>
