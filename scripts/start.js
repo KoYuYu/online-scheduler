@@ -10,6 +10,17 @@ const args = fs.existsSync(standaloneServer)
   ? [standaloneServer]
   : ["node_modules/next/dist/bin/next", "start", "--hostname", "0.0.0.0", "--port", port];
 
+function verifyAuthSecret() {
+  const isProduction = process.env.NODE_ENV === "production" || process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_SERVICE_NAME;
+  if (!isProduction) {
+    return;
+  }
+  const secret = (process.env.AUTH_SECRET || "").trim();
+  if (!secret || secret === "dev-only-change-me" || secret.length < 32) {
+    throw new Error("AUTH_SECRET must be set to a unique value of at least 32 characters before starting in production.");
+  }
+}
+
 async function verifyDatabase() {
   if (!process.env.DATABASE_URL) {
     console.warn("DATABASE_URL is not set; using local JSON storage fallback.");
@@ -61,6 +72,7 @@ function spawnServer(scriptPath, env) {
 }
 
 async function main() {
+  verifyAuthSecret();
   await verifyDatabase();
 
   const env = {

@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
 import { buildAvailableSlots, findMatchingSlot, isPastStart, isTimeRangeAvailable, normalizeRange, serializePublicSlots } from "@/lib/availability";
 import { queueBookingNotification } from "@/lib/email";
+import { consumeRateLimit, getClientIp, rateLimitResponse } from "@/lib/rate-limit";
 import { queueBookingCreatedPushAndMarkCoveredReminders } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 import { addDaysToYmd, formatYmd, localYmdTimeToUtc } from "@/lib/time";
@@ -22,8 +23,17 @@ function isValidZoomUrl(value: string | null | undefined): value is string {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const bookingLimit = consumeRateLimit({
+      key: `public-booking:${getClientIp(request)}`,
+      limit: 8,
+      windowMs: 30 * 60 * 1000,
+    });
+    if (!bookingLimit.allowed) {
+      return rateLimitResponse(bookingLimit, "預約送出太頻繁，請稍後再試。");
+    }
+
     const body = (await request.json()) as Partial<BookingInput> & { rawInviteText?: string; sourceTimeZone?: string };
     const attachments = sanitizeAttachments(body);
 

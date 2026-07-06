@@ -50,7 +50,7 @@ npm.cmd run build
 3. Deploy this repo as the Next.js service.
 4. Add a reference variable from the Postgres service: `DATABASE_URL`.
 5. Set service variables from `.env.example`, especially:
-   - `AUTH_SECRET`
+   - `AUTH_SECRET` with a unique random value of at least 32 characters. Production startup fails if this is missing, still set to the dev fallback, or too short.
    - `ADMIN_EMAIL`
    - `ADMIN_PASSWORD`
    - `NOTIFY_TO_EMAIL=jasonko12033@gmail.com`
@@ -69,6 +69,14 @@ npm run db:migrate
 7. Deploy and generate a public domain.
 
 For Gmail SMTP, create a Google App Password and put it in `SMTP_PASS`. Do not use your normal Gmail password.
+
+Generate a strong `AUTH_SECRET` with Node:
+
+```powershell
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+If you rotate `AUTH_SECRET`, all existing admin sessions are invalidated and you will need to log in again.
 
 ## Admin Push Notifications
 
