@@ -696,7 +696,7 @@ export function AdminDashboard() {
               <div>
                 <span className="section-kicker">推送</span>
                 <h2 id="admin-push-heading">管理員推送</h2>
-                <p className="muted">只會通知已登入後台並啟用的你的裝置。</p>
+                <p className="muted">通知會送到已啟用的你的裝置；PWA 不用一直開著，打開後台會自動延長登入。</p>
               </div>
               <Bell size={18} className="muted-icon" />
             </div>

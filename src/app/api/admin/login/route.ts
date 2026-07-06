@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSession, defaultAdminEmail, defaultAdminPassword, ensureAdminBootstrap, SESSION_COOKIE, verifyPassword } from "@/lib/auth";
+import { createSession, defaultAdminEmail, defaultAdminPassword, ensureAdminBootstrap, sessionCookieOptions, SESSION_COOKIE, verifyPassword } from "@/lib/auth";
 import { getStore } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -10,13 +10,7 @@ export async function POST(request: Request) {
   const envPassword = defaultAdminPassword();
   if (envEmail && envPassword && body.email?.toLowerCase() === envEmail && body.password === envPassword) {
     const response = NextResponse.json({ ok: true });
-    response.cookies.set(SESSION_COOKIE, createSession(envEmail), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: 60 * 60 * 12,
-    });
+    response.cookies.set(SESSION_COOKIE, createSession(envEmail), sessionCookieOptions());
     return response;
   }
 
@@ -27,12 +21,6 @@ export async function POST(request: Request) {
   }
 
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(SESSION_COOKIE, createSession(user.email), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: 60 * 60 * 12,
-  });
+  response.cookies.set(SESSION_COOKIE, createSession(user.email), sessionCookieOptions());
   return response;
 }

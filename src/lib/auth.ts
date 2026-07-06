@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { getStore } from "@/lib/storage";
 
 export const SESSION_COOKIE = "scheduler_admin";
+const defaultSessionMaxAgeSeconds = 60 * 60 * 24 * 180;
 
 function secret(): string {
   return process.env.AUTH_SECRET || "dev-only-change-me";
@@ -40,8 +41,23 @@ function sign(payload: string): string {
   return crypto.createHmac("sha256", secret()).update(payload).digest("base64url");
 }
 
+export function getAdminSessionMaxAgeSeconds(): number {
+  const value = Number(process.env.ADMIN_SESSION_MAX_AGE_SECONDS || defaultSessionMaxAgeSeconds);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : defaultSessionMaxAgeSeconds;
+}
+
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: getAdminSessionMaxAgeSeconds(),
+  };
+}
+
 export function createSession(email: string): string {
-  const payload = base64Url(JSON.stringify({ email, exp: Date.now() + 1000 * 60 * 60 * 12 }));
+  const payload = base64Url(JSON.stringify({ email, exp: Date.now() + 1000 * getAdminSessionMaxAgeSeconds() }));
   return `${payload}.${sign(payload)}`;
 }
 

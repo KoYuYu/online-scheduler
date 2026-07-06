@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/auth";
+import { createSession, getAdminSession, getAdminSessionMaxAgeSeconds, sessionCookieOptions, SESSION_COOKIE } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -8,5 +8,10 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "未登入或權限不足。" }, { status: 401 });
   }
-  return NextResponse.json({ email: session.email });
+  const response = NextResponse.json({
+    email: session.email,
+    sessionMaxAgeSeconds: getAdminSessionMaxAgeSeconds(),
+  });
+  response.cookies.set(SESSION_COOKIE, createSession(session.email), sessionCookieOptions());
+  return response;
 }
