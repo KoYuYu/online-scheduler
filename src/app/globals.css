@@ -789,6 +789,51 @@ button:disabled {
   background: var(--amber-soft);
 }
 
+.parse-confidence {
+  display: grid;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.parse-confidence div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.parse-confidence span,
+.parse-confidence p {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.parse-confidence strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.parse-confidence p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.parse-confidence.high strong {
+  color: var(--green);
+}
+
+.parse-confidence.medium strong {
+  color: var(--amber);
+}
+
+.parse-confidence.needs-review strong {
+  color: var(--red);
+}
+
 .info-strip {
   padding: 11px 12px;
   background: var(--surface-soft);
@@ -1343,6 +1388,48 @@ button:disabled {
   gap: 10px;
 }
 
+.dialog-actions.single {
+  grid-template-columns: 1fr;
+}
+
+.success-summary-card {
+  background: #f6fbf9;
+  border-color: #b9e4d0;
+}
+
+.success-booking-list {
+  display: grid;
+  gap: 8px;
+}
+
+.success-booking-row {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.success-booking-row strong,
+.success-booking-row span,
+.success-booking-row a,
+.success-booking-row em {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.success-booking-row span,
+.success-booking-row em {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.success-booking-row em {
+  font-style: normal;
+}
+
 @media (max-width: 1100px) {
   .scheduler-layout,
   .admin-grid {
@@ -1368,6 +1455,23 @@ button:disabled {
   .app-shell {
     width: min(100% - 20px, 1200px);
     padding: 16px 0 30px;
+  }
+
+  .scheduler-shell {
+    padding-bottom: min(72dvh, 560px);
+  }
+
+  .booking-surface {
+    position: fixed;
+    z-index: 35;
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+    max-height: min(72dvh, 560px);
+    overflow-y: auto;
+    border-color: var(--line-strong);
+    border-radius: 12px 12px 8px 8px;
+    box-shadow: 0 -18px 46px rgba(23, 32, 46, 0.22);
   }
 
   .topbar,

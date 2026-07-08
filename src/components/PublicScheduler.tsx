@@ -15,7 +15,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { addDaysToYmd, EASTERN_TIME_ZONE, formatYmd, ymdToWeekday } from "@/lib/time";
 import { ZOOM_TIME_ZONE_OPTIONS, type ParsedZoomInvite, type PublicSlot } from "@/lib/types";
 
@@ -36,6 +36,20 @@ type AttachmentState = {
   mimeType: string;
   dataBase64: string;
   sizeBytes: number;
+};
+
+type ConfirmedBookingSummary = {
+  id?: string;
+  source: "manual" | "zoom";
+  title: string;
+  startAtUtc: string;
+  endAtUtc: string;
+  zoomJoinUrl?: string | null;
+  notes?: string | null;
+};
+
+type BookingSuccessState = {
+  bookings: ConfirmedBookingSummary[];
 };
 
 type Language = "zh" | "en";
@@ -111,11 +125,31 @@ const publicCopy = {
     close: "關閉",
     confirmAndBook: "確認並預約",
     manualBooking: "手動預約",
+    missingTopicTitle: "請填寫會議主題",
+    missingTopicWarning: "手動預約需要會議主題。",
+    missingTopicCopy: "請返回表單補上主題，這樣管理員後台與提醒通知才看得出這次會議內容。",
+    backToAddTopic: "返回填主題",
     missingZoomTitle: "未提供 Zoom 連結",
     missingZoomWarning: "這次預約沒有 Zoom 連結。",
     missingZoomCopy: (count: number) => `系統仍會建立 ${count} 個預約並封鎖時段，但管理員之後可能需要補上會議連結。`,
     backToAddLink: "返回補連結",
     submitAnyway: "仍然送出",
+    successTitle: "預約已建立",
+    successCopy: "這段時間已保留。你可以下載行事曆檔留存。",
+    successBatchCopy: (count: number) => `${count} 個時段已保留。你可以下載行事曆檔留存。`,
+    bookingDetails: "預約明細",
+    addToCalendar: "下載行事曆檔",
+    done: "完成",
+    parseConfidence: "解析狀態",
+    confidenceHigh: "看起來完整",
+    confidenceMedium: "請快速確認",
+    confidenceNeedsReview: "需要補充",
+    parseMissingItems: "需確認",
+    missingZoomLink: "缺少 Zoom 連結",
+    missingMeetingId: "缺少會議號",
+    missingPasscode: "缺少密碼",
+    missingInviter: "缺少邀請人",
+    missingSourceTimezone: "缺少原始時區",
     alternativeTimes: "可改選時段",
     closeDialogLabel: "關閉確認視窗",
     languageAria: "切換語言",
@@ -206,11 +240,31 @@ const publicCopy = {
     close: "Close",
     confirmAndBook: "Confirm and Book",
     manualBooking: "Manual Booking",
+    missingTopicTitle: "Meeting Topic Required",
+    missingTopicWarning: "Manual bookings need a meeting topic.",
+    missingTopicCopy: "Go back and add a topic so the admin view and reminder notifications clearly show what this meeting is for.",
+    backToAddTopic: "Add Topic",
     missingZoomTitle: "No Zoom Link Provided",
     missingZoomWarning: "This booking does not include a Zoom link.",
     missingZoomCopy: (count: number) => `The system will still create ${count} booking${count > 1 ? "s" : ""} and block the time. The admin may add the meeting link later.`,
     backToAddLink: "Go Back",
     submitAnyway: "Submit Anyway",
+    successTitle: "Booking Created",
+    successCopy: "This time is reserved. You can download a calendar file for your records.",
+    successBatchCopy: (count: number) => `${count} times are reserved. You can download a calendar file for your records.`,
+    bookingDetails: "Booking Details",
+    addToCalendar: "Download Calendar File",
+    done: "Done",
+    parseConfidence: "Parse Status",
+    confidenceHigh: "Looks Complete",
+    confidenceMedium: "Review Quickly",
+    confidenceNeedsReview: "Needs Input",
+    parseMissingItems: "Check",
+    missingZoomLink: "Missing Zoom link",
+    missingMeetingId: "Missing meeting ID",
+    missingPasscode: "Missing passcode",
+    missingInviter: "Missing inviter",
+    missingSourceTimezone: "Missing original time zone",
     alternativeTimes: "Alternative Times",
     closeDialogLabel: "Close confirmation dialog",
     languageAria: "Switch language",
@@ -280,10 +334,13 @@ export function PublicScheduler() {
   const [suggestions, setSuggestions] = useState<PublicSlot[]>([]);
   const [previewAvailable, setPreviewAvailable] = useState<boolean | null>(null);
   const [selectedSourceTimeZone, setSelectedSourceTimeZone] = useState("");
+  const [showMissingTopicConfirm, setShowMissingTopicConfirm] = useState(false);
   const [showMissingZoomConfirm, setShowMissingZoomConfirm] = useState(false);
+  const [bookingSuccess, setBookingSuccess] = useState<BookingSuccessState | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<BookingMessage | null>(null);
   const slotsRequestId = useRef(0);
+  const bookingTitleInputRef = useRef<HTMLInputElement | null>(null);
   const copy = publicCopy[language];
 
   const currentWeekStartYmd = useMemo(() => startOfWeekYmd(todayYmd), [todayYmd]);
@@ -418,7 +475,7 @@ export function PublicScheduler() {
     await requestZoomPreview(sourceTimeZone);
   }
 
-  async function createBooking(payload: Record<string, unknown>) {
+  async function createBooking(payload: Record<string, unknown>, successSummary: ConfirmedBookingSummary) {
     setLoading(true);
     setMessage(null);
     try {
@@ -427,7 +484,11 @@ export function PublicScheduler() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = (await response.json()) as { error?: string; suggestions?: PublicSlot[] };
+      const data = (await response.json()) as {
+        booking?: { id?: string; title?: string; startAtUtc?: string; endAtUtc?: string };
+        error?: string;
+        suggestions?: PublicSlot[];
+      };
       if (!response.ok) {
         setSuggestions(data.suggestions || []);
         if (payload.source === "zoom") {
@@ -436,6 +497,17 @@ export function PublicScheduler() {
         throw new Error(data.error || copy.bookingFailed);
       }
       setMessage({ type: "success", text: copy.bookingSuccess });
+      setBookingSuccess({
+        bookings: [
+          {
+            ...successSummary,
+            id: data.booking?.id || successSummary.id,
+            title: data.booking?.title || successSummary.title,
+            startAtUtc: data.booking?.startAtUtc || successSummary.startAtUtc,
+            endAtUtc: data.booking?.endAtUtc || successSummary.endAtUtc,
+          },
+        ],
+      });
       setMode("calendar");
       setSelectedSlots([]);
       setPreview(null);
@@ -493,6 +565,10 @@ export function PublicScheduler() {
       setMessage({ type: "error", text: copy.nameRequired });
       return;
     }
+    if (!bookingTitle.trim()) {
+      setShowMissingTopicConfirm(true);
+      return;
+    }
     if (!zoomJoinUrl.trim() && !options.allowMissingZoom) {
       setShowMissingZoomConfirm(true);
       return;
@@ -500,11 +576,13 @@ export function PublicScheduler() {
 
     setLoading(true);
     setMessage(null);
+    setShowMissingTopicConfirm(false);
     setShowMissingZoomConfirm(false);
     const attachmentPayload = buildAttachmentPayload(attachments);
     const zoomUrl = zoomJoinUrl.trim() || null;
-    const manualTitle = bookingTitle.trim() || (language === "zh" ? "預約會議" : "Scheduled Meeting");
+    const manualTitle = bookingTitle.trim();
     let createdCount = 0;
+    const createdBookings: ConfirmedBookingSummary[] = [];
 
     try {
       for (const slot of selectedSlots) {
@@ -522,18 +600,32 @@ export function PublicScheduler() {
             ...attachmentPayload,
           }),
         });
-        const data = (await response.json()) as { error?: string; suggestions?: PublicSlot[] };
+        const data = (await response.json()) as {
+          booking?: { id?: string; title?: string; startAtUtc?: string; endAtUtc?: string };
+          error?: string;
+          suggestions?: PublicSlot[];
+        };
         if (!response.ok) {
           setSuggestions(data.suggestions || []);
           throw new Error(data.error || copy.bookingFailed);
         }
         createdCount += 1;
+        createdBookings.push({
+          id: data.booking?.id,
+          source: "manual",
+          title: data.booking?.title || manualTitle,
+          startAtUtc: data.booking?.startAtUtc || slot.startAtUtc,
+          endAtUtc: data.booking?.endAtUtc || slot.endAtUtc,
+          zoomJoinUrl: zoomUrl,
+          notes,
+        });
       }
 
       setMessage({
         type: "success",
         text: selectedSlots.length > 1 ? copy.bookingBatchSuccess(selectedSlots.length) : copy.bookingSuccess,
       });
+      setBookingSuccess({ bookings: createdBookings });
       setMode("calendar");
       setSelectedSlots([]);
       setBookerName("");
@@ -559,13 +651,23 @@ export function PublicScheduler() {
       setMessage({ type: "error", text: copy.confirmZoomFirst });
       return;
     }
-    void createBooking({
-      source: "zoom",
-      rawInviteText: zoomText,
-      sourceTimeZone: selectedSourceTimeZone || undefined,
-      notes,
-      ...buildAttachmentPayload(attachments),
-    });
+    void createBooking(
+      {
+        source: "zoom",
+        rawInviteText: zoomText,
+        sourceTimeZone: selectedSourceTimeZone || undefined,
+        notes,
+        ...buildAttachmentPayload(attachments),
+      },
+      {
+        source: "zoom",
+        title: preview.title,
+        startAtUtc: preview.startAtUtc,
+        endAtUtc: preview.endAtUtc,
+        zoomJoinUrl: preview.zoomJoinUrl,
+        notes,
+      }
+    );
   }
 
   async function handleAttachmentChange(files: FileList | null) {
@@ -827,6 +929,7 @@ export function PublicScheduler() {
             <div className="form-stack">
               <SelectedSlotsSummary copy={copy} language={language} slots={selectedSlots} onRemove={removeSelectedSlot} />
               <BookingFields
+                bookingTitleInputRef={bookingTitleInputRef}
                 bookerName={bookerName}
                 bookingTitle={bookingTitle}
                 copy={copy}
@@ -913,6 +1016,24 @@ export function PublicScheduler() {
             onConfirm={() => void submitManualBookings({ allowMissingZoom: true })}
           />
         ) : null}
+        {showMissingTopicConfirm ? (
+          <MissingTopicDialog
+            copy={copy}
+            onClose={() => {
+              setShowMissingTopicConfirm(false);
+              window.setTimeout(() => bookingTitleInputRef.current?.focus(), 0);
+            }}
+          />
+        ) : null}
+        {bookingSuccess ? (
+          <BookingSuccessDialog
+            copy={copy}
+            language={language}
+            success={bookingSuccess}
+            onAddToCalendar={() => downloadCalendarFile(bookingSuccess.bookings)}
+            onClose={() => setBookingSuccess(null)}
+          />
+        ) : null}
       </section>
       <footer className="public-footer">
         <span>{copy.privacyNote}</span>
@@ -952,6 +1073,56 @@ function formatFileSize(bytes: number): string {
     return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function downloadCalendarFile(bookings: ConfirmedBookingSummary[]): void {
+  if (!bookings.length) {
+    return;
+  }
+  const calendarText = buildCalendarFile(bookings);
+  const blob = new Blob([calendarText], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = bookings.length === 1 ? `${toFileSlug(bookings[0].title)}.ics` : "online-scheduler-bookings.ics";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function buildCalendarFile(bookings: ConfirmedBookingSummary[]): string {
+  const now = formatIcsDate(new Date().toISOString());
+  const events = bookings.map((booking, index) => {
+    const description = [
+      booking.zoomJoinUrl ? `Zoom: ${booking.zoomJoinUrl}` : "",
+      booking.notes ? `Notes: ${booking.notes}` : "",
+    ].filter(Boolean).join("\n");
+    return [
+      "BEGIN:VEVENT",
+      `UID:${escapeIcsText(booking.id || `${booking.startAtUtc}-${index}`)}@online-scheduler`,
+      `DTSTAMP:${now}`,
+      `DTSTART:${formatIcsDate(booking.startAtUtc)}`,
+      `DTEND:${formatIcsDate(booking.endAtUtc)}`,
+      `SUMMARY:${escapeIcsText(booking.title)}`,
+      description ? `DESCRIPTION:${escapeIcsText(description)}` : "",
+      booking.zoomJoinUrl ? `URL:${booking.zoomJoinUrl}` : "",
+      "END:VEVENT",
+    ].filter(Boolean).join("\r\n");
+  });
+  return ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Online Scheduler//Booking//EN", "CALSCALE:GREGORIAN", ...events, "END:VCALENDAR"].join("\r\n");
+}
+
+function formatIcsDate(iso: string): string {
+  return new Date(iso).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function escapeIcsText(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
+}
+
+function toFileSlug(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "booking";
 }
 
 function startOfWeekYmd(ymd: string): string {
@@ -1102,6 +1273,47 @@ function countBlockedRanges(slots: PublicSlot[]): number {
   return ranges.size;
 }
 
+function getZoomParseConfidence(preview: ParsedZoomInvite): { tone: "high" | "medium" | "needs-review"; label: string } {
+  const missingItems = getZoomParseMissingItems(preview, publicCopy.zh);
+  if (!preview.timeZoneConfirmed || !preview.zoomJoinUrl) {
+    return { tone: "needs-review", label: publicCopy.zh.confidenceNeedsReview };
+  }
+  if (preview.timeZoneSource !== "invite" || missingItems.length) {
+    return { tone: "medium", label: publicCopy.zh.confidenceMedium };
+  }
+  return { tone: "high", label: publicCopy.zh.confidenceHigh };
+}
+
+function getLocalizedZoomParseConfidence(preview: ParsedZoomInvite, copy: PublicCopy): { tone: "high" | "medium" | "needs-review"; label: string } {
+  const base = getZoomParseConfidence(preview);
+  const labels = {
+    high: copy.confidenceHigh,
+    medium: copy.confidenceMedium,
+    "needs-review": copy.confidenceNeedsReview,
+  };
+  return { tone: base.tone, label: labels[base.tone] };
+}
+
+function getZoomParseMissingItems(preview: ParsedZoomInvite, copy: PublicCopy): string[] {
+  const missingItems: string[] = [];
+  if (!preview.timeZoneConfirmed) {
+    missingItems.push(copy.missingSourceTimezone);
+  }
+  if (!preview.zoomJoinUrl) {
+    missingItems.push(copy.missingZoomLink);
+  }
+  if (!preview.meetingId) {
+    missingItems.push(copy.missingMeetingId);
+  }
+  if (!preview.passcode) {
+    missingItems.push(copy.missingPasscode);
+  }
+  if (!preview.invitedByName) {
+    missingItems.push(copy.missingInviter);
+  }
+  return missingItems;
+}
+
 function getZoomTimeZoneLabel(value: string, language: Language, fallback: string): string {
   if (language === "zh") {
     return fallback;
@@ -1189,6 +1401,7 @@ function SelectedSlotsSummary({
 }
 
 function BookingFields(props: {
+  bookingTitleInputRef?: RefObject<HTMLInputElement | null>;
   bookerName: string;
   bookingTitle: string;
   copy: PublicCopy;
@@ -1212,7 +1425,12 @@ function BookingFields(props: {
         <span>{props.copy.topic}</span>
         <div className="input-with-icon">
           <FileText size={16} />
-          <input placeholder={props.copy.topicPlaceholder} value={props.bookingTitle} onChange={(event) => props.setBookingTitle(event.target.value)} />
+          <input
+            placeholder={props.copy.topicPlaceholder}
+            ref={props.bookingTitleInputRef}
+            value={props.bookingTitle}
+            onChange={(event) => props.setBookingTitle(event.target.value)}
+          />
         </div>
       </label>
       <label className="field">
@@ -1298,6 +1516,7 @@ function ZoomPreview({
         {available && preview.timeZoneConfirmed ? <CheckCircle2 size={17} /> : <AlertCircle size={17} />}
         <strong>{!preview.timeZoneConfirmed ? copy.confirmTimezone : available ? copy.availableToBook : copy.unavailableToBook}</strong>
       </div>
+      <ZoomConfidenceSummary copy={copy} preview={preview} />
       <div className="preview-row">
         <span>{copy.invitedBy}</span>
         <strong>{preview.invitedByName || copy.notProvided}</strong>
@@ -1333,6 +1552,27 @@ function ZoomPreview({
           <span>{copy.notes}</span>
           <strong>{trimmedNotes}</strong>
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ZoomConfidenceSummary({ copy, preview }: { copy: PublicCopy; preview: ParsedZoomInvite }) {
+  const confidence = getLocalizedZoomParseConfidence(preview, copy);
+  const missingItems = getZoomParseMissingItems(preview, copy);
+  const separator = copy === publicCopy.zh ? "、" : ", ";
+  const missingPrefix = copy === publicCopy.zh ? `${copy.parseMissingItems}：` : `${copy.parseMissingItems}: `;
+  return (
+    <div className={`parse-confidence ${confidence.tone}`}>
+      <div>
+        <span>{copy.parseConfidence}</span>
+        <strong>{confidence.label}</strong>
+      </div>
+      {missingItems.length ? (
+        <p>
+          {missingPrefix}
+          {missingItems.join(separator)}
+        </p>
       ) : null}
     </div>
   );
@@ -1462,6 +1702,104 @@ function MissingZoomConfirmationDialog(props: {
           <button className="primary-button" disabled={props.loading} type="button" onClick={props.onConfirm}>
             <Check size={17} />
             {props.copy.submitAnyway}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MissingTopicDialog(props: { copy: PublicCopy; onClose: () => void }) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={props.onClose}>
+      <section
+        aria-labelledby="missing-topic-confirmation-title"
+        aria-modal="true"
+        className="confirmation-dialog"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <span className="section-kicker">{props.copy.manualBooking}</span>
+            <h2 id="missing-topic-confirmation-title">{props.copy.missingTopicTitle}</h2>
+          </div>
+          <button aria-label={props.copy.closeDialogLabel} className="icon-button" type="button" onClick={props.onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="preview-card">
+          <div className="status-line warning">
+            <AlertCircle size={17} />
+            <strong>{props.copy.missingTopicWarning}</strong>
+          </div>
+          <p className="dialog-copy">{props.copy.missingTopicCopy}</p>
+        </div>
+
+        <div className="dialog-actions single">
+          <button className="primary-button" type="button" onClick={props.onClose}>
+            <FileText size={17} />
+            {props.copy.backToAddTopic}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function BookingSuccessDialog(props: {
+  copy: PublicCopy;
+  language: Language;
+  success: BookingSuccessState;
+  onAddToCalendar: () => void;
+  onClose: () => void;
+}) {
+  const count = props.success.bookings.length;
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={props.onClose}>
+      <section
+        aria-labelledby="booking-success-title"
+        aria-modal="true"
+        className="confirmation-dialog success-dialog"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-header">
+          <div>
+            <span className="section-kicker">{props.copy.booking}</span>
+            <h2 id="booking-success-title">{props.copy.successTitle}</h2>
+          </div>
+          <button aria-label={props.copy.closeDialogLabel} className="icon-button" type="button" onClick={props.onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="preview-card success-summary-card">
+          <div className="status-line success">
+            <CheckCircle2 size={17} />
+            <strong>{count > 1 ? props.copy.successBatchCopy(count) : props.copy.successCopy}</strong>
+          </div>
+          <div className="success-booking-list" aria-label={props.copy.bookingDetails}>
+            {props.success.bookings.map((booking, index) => (
+              <div className="success-booking-row" key={booking.id || `${booking.startAtUtc}-${index}`}>
+                <strong>{booking.title}</strong>
+                <span>{formatEtDateTimeRange(booking.startAtUtc, booking.endAtUtc, props.language)}</span>
+                {booking.zoomJoinUrl ? <a href={booking.zoomJoinUrl} rel="noreferrer" target="_blank">{booking.zoomJoinUrl}</a> : null}
+                {booking.notes ? <em>{booking.notes}</em> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="dialog-actions">
+          <button className="ghost-button" type="button" onClick={props.onAddToCalendar}>
+            <CalendarCheck size={17} />
+            {props.copy.addToCalendar}
+          </button>
+          <button className="primary-button" type="button" onClick={props.onClose}>
+            <Check size={17} />
+            {props.copy.done}
           </button>
         </div>
       </section>
