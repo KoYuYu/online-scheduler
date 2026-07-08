@@ -77,6 +77,8 @@ export type PublicSlot = {
   id: string;
   startAtUtc: string;
   endAtUtc: string;
+  blockedStartAtUtc?: string | null;
+  blockedEndAtUtc?: string | null;
   dateKey: string;
   dateLabel: string;
   weekdayLabel: string;

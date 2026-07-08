@@ -242,6 +242,23 @@ const weekdayLabels: Record<Language, string[]> = {
 
 type PublicCopy = (typeof publicCopy)[Language];
 
+type SlotDisplayItem =
+  | {
+      type: "available";
+      id: string;
+      sortStartAtUtc: string;
+      sortEndAtUtc: string;
+      slot: PublicSlot;
+    }
+  | {
+      type: "blocked";
+      id: string;
+      startAtUtc: string;
+      endAtUtc: string;
+      sortStartAtUtc: string;
+      sortEndAtUtc: string;
+    };
+
 export function PublicScheduler() {
   const [language, setLanguage] = useState<Language>("zh");
   const [todayYmd] = useState(() => formatYmd(new Date(), EASTERN_TIME_ZONE));
@@ -356,13 +373,14 @@ export function PublicScheduler() {
     return groups;
   }, [slots]);
   const availableSlotCount = useMemo(() => slots.filter((slot) => slot.status !== "blocked").length, [slots]);
-  const blockedSlotCount = slots.length - availableSlotCount;
+  const blockedSlotCount = useMemo(() => countBlockedRanges(slots), [slots]);
   const selectedSlotIds = useMemo(() => new Set(selectedSlots.map((slot) => slot.id)), [selectedSlots]);
   const activeDay = useMemo(
     () => weekDays.find((day) => day.dateKey === expandedDayKey) || weekDays.find((day) => day.isToday) || weekDays[0],
     [expandedDayKey, weekDays]
   );
   const activeDaySlots = activeDay ? slotsByDate.get(activeDay.dateKey) || [] : [];
+  const activeDaySlotItems = useMemo(() => buildSlotDisplayItems(activeDaySlots), [activeDaySlots]);
 
   async function requestZoomPreview(sourceTimeZone?: string) {
     setLoading(true);
@@ -697,7 +715,7 @@ export function PublicScheduler() {
               {weekDays.map((day) => {
                 const daySlots = slotsByDate.get(day.dateKey) || [];
                 const availableCount = daySlots.filter((slot) => slot.status !== "blocked").length;
-                const blockedCount = daySlots.length - availableCount;
+                const blockedCount = countBlockedRanges(daySlots);
                 const active = activeDay.dateKey === day.dateKey;
                 return (
                   <button
@@ -736,24 +754,31 @@ export function PublicScheduler() {
               <div className="focus-slot-grid public-focus-slot-grid">
                 {slotsLoading ? (
                   <div className="no-slots">{copy.loading}...</div>
-                ) : activeDaySlots.length ? (
-                  activeDaySlots.map((slot) => {
-                    const blocked = slot.status === "blocked";
+                ) : activeDaySlotItems.length ? (
+                  activeDaySlotItems.map((item) => {
+                    if (item.type === "blocked") {
+                      return (
+                        <button className="slot-button blocked merged-blocked-slot" disabled key={item.id} type="button">
+                          <Clock size={15} />
+                          <span>
+                            {formatEtTimeRange(item.startAtUtc, item.endAtUtc, language)}
+                            <small>{copy.booked}</small>
+                          </span>
+                        </button>
+                      );
+                    }
+                    const slot = item.slot;
                     const selected = selectedSlotIds.has(slot.id);
                     return (
                       <button
                         aria-pressed={selected}
-                        className={`slot-button ${selected ? "selected" : ""} ${blocked ? "blocked" : ""}`}
-                        disabled={blocked}
+                        className={`slot-button ${selected ? "selected" : ""}`}
                         key={slot.id}
                         type="button"
                         onClick={() => toggleSlotSelection(slot)}
                       >
                         <Clock size={15} />
-                        <span>
-                          {formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}
-                          {blocked ? <small>{copy.booked}</small> : null}
-                        </span>
+                        <span>{formatEtTimeRange(slot.startAtUtc, slot.endAtUtc, language)}</span>
                       </button>
                     );
                   })
@@ -1024,6 +1049,57 @@ function formatDateKeyLong(ymd: string, language: Language): string {
 
 function compareSlotsByStart(left: PublicSlot, right: PublicSlot): number {
   return left.startAtUtc.localeCompare(right.startAtUtc);
+}
+
+function buildSlotDisplayItems(slots: PublicSlot[]): SlotDisplayItem[] {
+  const items: SlotDisplayItem[] = [];
+  const blockedRanges = new Map<string, SlotDisplayItem>();
+
+  for (const slot of slots) {
+    if (slot.status === "blocked") {
+      const blockedStartAtUtc = slot.blockedStartAtUtc || slot.startAtUtc;
+      const blockedEndAtUtc = slot.blockedEndAtUtc || slot.endAtUtc;
+      const id = `blocked_${blockedStartAtUtc}_${blockedEndAtUtc}`;
+      if (!blockedRanges.has(id)) {
+        blockedRanges.set(id, {
+          type: "blocked",
+          id,
+          startAtUtc: blockedStartAtUtc,
+          endAtUtc: blockedEndAtUtc,
+          sortStartAtUtc: blockedStartAtUtc,
+          sortEndAtUtc: blockedEndAtUtc,
+        });
+      }
+      continue;
+    }
+
+    items.push({
+      type: "available",
+      id: slot.id,
+      sortStartAtUtc: slot.startAtUtc,
+      sortEndAtUtc: slot.endAtUtc,
+      slot,
+    });
+  }
+
+  items.push(...blockedRanges.values());
+  return items.sort(
+    (left, right) =>
+      left.sortStartAtUtc.localeCompare(right.sortStartAtUtc) ||
+      left.sortEndAtUtc.localeCompare(right.sortEndAtUtc) ||
+      left.id.localeCompare(right.id)
+  );
+}
+
+function countBlockedRanges(slots: PublicSlot[]): number {
+  const ranges = new Set<string>();
+  for (const slot of slots) {
+    if (slot.status !== "blocked") {
+      continue;
+    }
+    ranges.add(`${slot.blockedStartAtUtc || slot.startAtUtc}_${slot.blockedEndAtUtc || slot.endAtUtc}`);
+  }
+  return ranges.size;
 }
 
 function getZoomTimeZoneLabel(value: string, language: Language, fallback: string): string {

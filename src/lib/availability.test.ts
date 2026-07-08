@@ -215,7 +215,13 @@ describe("serializePublicSlots", () => {
 
     expect(publicSlots).toHaveLength(7);
     expect(overlappingBookingSlot?.status).toBe("blocked");
+    expect(overlappingBookingSlot?.blockedStartAtUtc).toBe("2026-06-18T02:15:00.000Z");
+    expect(overlappingBookingSlot?.blockedEndAtUtc).toBe("2026-06-18T03:15:00.000Z");
     expect(publicSlots.find((slot) => slot.timeLabel === "9:00 PM - 10:00 PM ET")?.status).toBe("available");
+    expect(new Set(publicSlots.filter((slot) => slot.status === "blocked").map((slot) => `${slot.blockedStartAtUtc}_${slot.blockedEndAtUtc}`))).toEqual(
+      new Set(["2026-06-18T02:15:00.000Z_2026-06-18T03:15:00.000Z"])
+    );
+    expect(JSON.stringify(publicSlots)).not.toContain("booking-1");
     expect(JSON.stringify(publicSlots)).not.toContain("jason@example.com");
     expect(JSON.stringify(publicSlots)).not.toContain("example.zoom.us");
     expect(JSON.stringify(publicSlots)).not.toContain("private raw invite");

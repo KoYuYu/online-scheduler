@@ -454,6 +454,12 @@ button:disabled {
   opacity: 1;
 }
 
+.slot-button.merged-blocked-slot {
+  color: #536072;
+  background: #eef3f7;
+  border-style: dashed;
+}
+
 .slot-button.blocked svg {
   color: #8b98a8;
 }

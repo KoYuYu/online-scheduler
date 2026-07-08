@@ -72,25 +72,33 @@ export function buildPublicCalendarSlots(
         if (options.excludePast && isPastStart(startAtUtc, now)) {
           continue;
         }
-        const blocked = bookings.some(
-          (booking) => booking.status !== "cancelled" && overlaps(startAtUtc, endAtUtc, booking.startAtUtc, booking.endAtUtc)
-        );
+        const blockingBooking = findOverlappingBooking(bookings, startAtUtc, endAtUtc);
 
         slots.push({
           id: `${startAtUtc}_${endAtUtc}`,
           startAtUtc,
           endAtUtc,
+          blockedStartAtUtc: blockingBooking?.startAtUtc,
+          blockedEndAtUtc: blockingBooking?.endAtUtc,
           dateKey: ymd,
           dateLabel: formatEtDateLabel(startAtUtc),
           weekdayLabel: formatEtWeekdayLabel(startAtUtc),
           timeLabel: formatEtTimeLabel(startAtUtc, endAtUtc),
-          status: blocked ? "blocked" : "available",
+          status: blockingBooking ? "blocked" : "available",
         });
       }
     }
   }
 
   return slots.sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
+}
+
+function findOverlappingBooking(bookings: Booking[], startAtUtc: string, endAtUtc: string): Booking | null {
+  return (
+    bookings
+      .filter((booking) => booking.status !== "cancelled" && overlaps(startAtUtc, endAtUtc, booking.startAtUtc, booking.endAtUtc))
+      .sort((left, right) => left.startAtUtc.localeCompare(right.startAtUtc) || left.endAtUtc.localeCompare(right.endAtUtc))[0] || null
+  );
 }
 
 export function findMatchingSlot(slots: PublicSlot[], startAtUtc: string, endAtUtc: string): PublicSlot | null {
@@ -144,14 +152,21 @@ function isRangeInsideRule(rule: AvailabilityRule, start: Date, end: Date): bool
 }
 
 export function serializePublicSlots(slots: PublicSlot[]): PublicSlot[] {
-  return slots.map((slot) => ({
-    id: slot.id,
-    startAtUtc: slot.startAtUtc,
-    endAtUtc: slot.endAtUtc,
-    dateKey: slot.dateKey,
-    dateLabel: slot.dateLabel,
-    weekdayLabel: slot.weekdayLabel,
-    timeLabel: slot.timeLabel,
-    status: slot.status || "available",
-  }));
+  return slots.map((slot) => {
+    const serialized: PublicSlot = {
+      id: slot.id,
+      startAtUtc: slot.startAtUtc,
+      endAtUtc: slot.endAtUtc,
+      dateKey: slot.dateKey,
+      dateLabel: slot.dateLabel,
+      weekdayLabel: slot.weekdayLabel,
+      timeLabel: slot.timeLabel,
+      status: slot.status || "available",
+    };
+    if (slot.status === "blocked") {
+      serialized.blockedStartAtUtc = slot.blockedStartAtUtc || null;
+      serialized.blockedEndAtUtc = slot.blockedEndAtUtc || null;
+    }
+    return serialized;
+  });
 }
