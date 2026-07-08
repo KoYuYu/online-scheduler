@@ -34,6 +34,28 @@ export type PushSubscriptionInput = {
   userAgent?: string | null;
 };
 
+export type NotificationKind = "booking_created" | "reminder_24h" | "reminder_1h";
+export type NotificationChannel = "email" | "push";
+export type NotificationStatus = "sent" | "failed" | "skipped";
+
+export type NotificationLog = {
+  id: string;
+  bookingId: string;
+  kind: NotificationKind;
+  channel: NotificationChannel;
+  status: NotificationStatus;
+  detail: string | null;
+  createdAt: string;
+};
+
+export type NotificationLogInput = {
+  bookingId: string;
+  kind: NotificationKind;
+  channel: NotificationChannel;
+  status: NotificationStatus;
+  detail?: string | null;
+};
+
 export type Booking = {
   id: string;
   source: BookingSource;
@@ -56,6 +78,7 @@ export type Booking = {
   reminder24hLastError: string | null;
   reminder1hSentAt: string | null;
   reminder1hLastError: string | null;
+  notificationLogs?: NotificationLog[];
   status: "confirmed" | "cancelled";
   createdAt: string;
   updatedAt: string;

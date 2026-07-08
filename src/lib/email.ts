@@ -1,6 +1,8 @@
 import { resolve4 } from "node:dns/promises";
 import { isIP } from "node:net";
 import nodemailer from "nodemailer";
+import { recordNotificationLog } from "@/lib/notification-log";
+import { getStore } from "@/lib/storage";
 import type { Booking } from "@/lib/types";
 import { formatEtDateTimeRangeLabel } from "@/lib/time";
 
@@ -146,19 +148,41 @@ export async function sendBookingReminder(booking: Booking): Promise<Notificatio
 }
 
 export function queueBookingNotification(booking: Booking): void {
+  const store = getStore();
   void sendBookingNotification(booking)
-    .then((result) => {
+    .then(async (result) => {
       if (result.sent) {
+        await recordNotificationLog(store, {
+          bookingId: booking.id,
+          kind: "booking_created",
+          channel: "email",
+          status: "sent",
+          detail: "email_sent",
+        });
         console.log("預約通知信已送出。", { bookingId: booking.id });
         return;
       }
 
+      await recordNotificationLog(store, {
+        bookingId: booking.id,
+        kind: "booking_created",
+        channel: "email",
+        status: "skipped",
+        detail: result.reason || "not_sent",
+      });
       console.warn("預約通知信未寄送。", {
         bookingId: booking.id,
         reason: result.reason || "unknown",
       });
     })
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
+      await recordNotificationLog(store, {
+        bookingId: booking.id,
+        kind: "booking_created",
+        channel: "email",
+        status: "failed",
+        detail: error instanceof Error ? error.message : String(error),
+      });
       console.error("預約已建立，但通知信寄送失敗。", {
         bookingId: booking.id,
         error: error instanceof Error ? error.message : String(error),

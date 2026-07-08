@@ -1095,6 +1095,73 @@ button:disabled {
   color: var(--muted);
 }
 
+.notification-log-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  padding: 9px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.notification-log-head,
+.notification-log-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.notification-log-head {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
+.notification-log-row {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.notification-log-row span,
+.notification-log-row strong,
+.notification-log-row time {
+  padding: 3px 7px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.notification-log-row strong {
+  color: var(--text-soft);
+}
+
+.notification-log-row.sent strong {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #b9e4d0;
+}
+
+.notification-log-row.failed strong {
+  color: var(--red);
+  background: var(--red-soft);
+  border-color: #efc0c0;
+}
+
+.notification-log-row.skipped strong {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: #edd18a;
+}
+
+.notification-log-row em {
+  min-width: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-style: normal;
+}
+
 .link-line {
   flex-wrap: wrap;
   margin-top: 10px;

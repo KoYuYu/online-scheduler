@@ -6,6 +6,8 @@ import type {
   BookingAttachment,
   BookingAttachmentInput,
   BookingInput,
+  NotificationLog,
+  NotificationLogInput,
   PushSubscriptionInput,
   PushSubscriptionRecord,
 } from "@/lib/types";
@@ -105,6 +107,18 @@ function mapPushSubscription(row: Record<string, unknown>): PushSubscriptionReco
     lastError: (row.last_error as string | null) || null,
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
+  };
+}
+
+function mapNotificationLog(row: Record<string, unknown>): NotificationLog {
+  return {
+    id: String(row.id),
+    bookingId: String(row.booking_id),
+    kind: row.kind as NotificationLog["kind"],
+    channel: row.channel as NotificationLog["channel"],
+    status: row.status as NotificationLog["status"],
+    detail: (row.detail as string | null) || null,
+    createdAt: new Date(row.created_at as string).toISOString(),
   };
 }
 
@@ -232,8 +246,14 @@ export class PostgresStore {
       return [];
     }
     const ids = rows.map((row) => String(row.id));
-    const attachmentsByBookingId = await this.listAttachmentsByBookingIds(ids);
-    return rows.map((row) => mapBooking(row, attachmentsByBookingId.get(String(row.id)) || []));
+    const [attachmentsByBookingId, notificationLogsByBookingId] = await Promise.all([
+      this.listAttachmentsByBookingIds(ids),
+      this.listNotificationLogsByBookingIds(ids),
+    ]);
+    return rows.map((row) => ({
+      ...mapBooking(row, attachmentsByBookingId.get(String(row.id)) || []),
+      notificationLogs: (notificationLogsByBookingId.get(String(row.id)) || []).slice(0, 12),
+    }));
   }
 
   private async listAttachmentsByBookingIds(ids: string[], client: Pool | PoolClient = this.pool): Promise<Map<string, BookingAttachment[]>> {
@@ -254,6 +274,50 @@ export class PostgresStore {
       attachmentsByBookingId.set(bookingId, current);
     }
     return attachmentsByBookingId;
+  }
+
+  private async listNotificationLogsByBookingIds(ids: string[], client: Pool | PoolClient = this.pool): Promise<Map<string, NotificationLog[]>> {
+    const logsByBookingId = new Map<string, NotificationLog[]>();
+    if (!ids.length) {
+      return logsByBookingId;
+    }
+    const result = await client.query(
+      `SELECT * FROM notification_logs
+       WHERE booking_id = ANY($1::text[])
+       ORDER BY created_at DESC, id DESC`,
+      [ids]
+    );
+    for (const row of result.rows) {
+      const log = mapNotificationLog(row);
+      const current = logsByBookingId.get(log.bookingId) || [];
+      current.push(log);
+      logsByBookingId.set(log.bookingId, current);
+    }
+    return logsByBookingId;
+  }
+
+  async listNotificationLogs(bookingId?: string): Promise<NotificationLog[]> {
+    const result = bookingId
+      ? await this.pool.query("SELECT * FROM notification_logs WHERE booking_id = $1 ORDER BY created_at DESC, id DESC", [bookingId])
+      : await this.pool.query("SELECT * FROM notification_logs ORDER BY created_at DESC, id DESC LIMIT 300");
+    return result.rows.map(mapNotificationLog);
+  }
+
+  async createNotificationLog(input: NotificationLogInput): Promise<NotificationLog> {
+    const result = await this.pool.query(
+      `INSERT INTO notification_logs (id, booking_id, kind, channel, status, detail)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [
+        crypto.randomUUID(),
+        input.bookingId,
+        input.kind,
+        input.channel,
+        input.status,
+        input.detail?.slice(0, 1000) || null,
+      ]
+    );
+    return mapNotificationLog(result.rows[0]);
   }
 
   private async replaceBookingAttachments(

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { addMinutes, localYmdTimeToUtc } from "@/lib/time";
-import type { AvailabilityRule, Booking, BookingAttachment, ParsedZoomInvite } from "@/lib/types";
+import type { AvailabilityRule, Booking, BookingAttachment, NotificationLog, ParsedZoomInvite } from "@/lib/types";
 
 const weekdays = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
 const availabilityWindow = "週一至週五 晚上 8:00 到凌晨 12:00（美東）；週六、週日 早上 10:00 到下午 1:00、晚上 7:00 到凌晨 12:00（美東）";
@@ -467,6 +467,7 @@ export function AdminDashboard() {
 
   function renderBookingCard(booking: Booking, options: { past?: boolean } = {}) {
     const reminderStatuses = getReminderStatuses(booking);
+    const notificationLogs = booking.notificationLogs || [];
     return (
       <article className={`booking-card ${options.past ? "past-booking" : ""}`} key={booking.id}>
         <header>
@@ -498,6 +499,7 @@ export function AdminDashboard() {
           {options.past ? <span>歷史</span> : null}
           {booking.status === "cancelled" ? <span>已取消</span> : null}
         </div>
+        {notificationLogs.length ? <NotificationLogList logs={notificationLogs} /> : null}
         {booking.notes ? <p className="muted note-line">備註：{booking.notes}</p> : null}
         {booking.zoomJoinUrl ? (
           <p className="muted link-line">
@@ -1058,6 +1060,61 @@ function getReminderStatus({
     return { label: `${label} 提醒：待送`, tone: "pending" };
   }
   return { label: `${label} 提醒：未到時間`, tone: "muted" };
+}
+
+function NotificationLogList({ logs }: { logs: NotificationLog[] }) {
+  const recentLogs = logs.slice(0, 4);
+  return (
+    <div className="notification-log-list" aria-label="通知紀錄">
+      <div className="notification-log-head">
+        <Bell size={14} />
+        <strong>通知紀錄</strong>
+      </div>
+      {recentLogs.map((log) => (
+        <div className={`notification-log-row ${log.status}`} key={log.id} title={log.detail || undefined}>
+          <span>{notificationKindLabel(log.kind)}</span>
+          <span>{notificationChannelLabel(log.channel)}</span>
+          <strong>{notificationStatusLabel(log.status)}</strong>
+          <time>{formatEtTimestampShort(log.createdAt)}</time>
+          {log.status !== "sent" && log.detail ? <em>{notificationDetailLabel(log.detail)}</em> : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function notificationKindLabel(kind: NotificationLog["kind"]): string {
+  const labels: Record<NotificationLog["kind"], string> = {
+    booking_created: "新預約",
+    reminder_24h: "24h 提醒",
+    reminder_1h: "1h 提醒",
+  };
+  return labels[kind] || kind;
+}
+
+function notificationChannelLabel(channel: NotificationLog["channel"]): string {
+  return channel === "email" ? "Email" : "推送";
+}
+
+function notificationStatusLabel(status: NotificationLog["status"]): string {
+  const labels: Record<NotificationLog["status"], string> = {
+    sent: "已送",
+    failed: "失敗",
+    skipped: "略過",
+  };
+  return labels[status] || status;
+}
+
+function notificationDetailLabel(detail: string): string {
+  const labels: Record<string, string> = {
+    smtp_not_configured: "尚未設定 SMTP/Resend",
+    web_push_not_configured: "尚未設定推送金鑰",
+    no_push_subscriptions: "沒有可推送裝置",
+    covered_by_booking_created_push: "新預約推送已涵蓋",
+    push_not_sent: "推送未送出",
+    not_sent: "未送出",
+  };
+  return labels[detail] || detail;
 }
 
 function formatEtTimestampShort(iso: string): string {

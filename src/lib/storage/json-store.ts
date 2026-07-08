@@ -7,6 +7,8 @@ import type {
   BookingAttachment,
   BookingAttachmentInput,
   BookingInput,
+  NotificationLog,
+  NotificationLogInput,
   PushSubscriptionInput,
   PushSubscriptionRecord,
 } from "@/lib/types";
@@ -25,6 +27,7 @@ type JsonData = {
   bookings: Booking[];
   adminUsers: AdminUser[];
   pushSubscriptions: PushSubscriptionRecord[];
+  notificationLogs: NotificationLog[];
 };
 
 let memoryData: JsonData | null = null;
@@ -86,6 +89,32 @@ function normalizeBooking(booking: Booking): Booking {
     reminder24hLastError: booking.reminder24hLastError || null,
     reminder1hSentAt: booking.reminder1hSentAt || null,
     reminder1hLastError: booking.reminder1hLastError || null,
+    notificationLogs: booking.notificationLogs || [],
+  };
+}
+
+function normalizeNotificationLog(log: Partial<NotificationLog>): NotificationLog | null {
+  if (!log.bookingId || !log.kind || !log.channel || !log.status) {
+    return null;
+  }
+  return {
+    id: log.id || crypto.randomUUID(),
+    bookingId: log.bookingId,
+    kind: log.kind,
+    channel: log.channel,
+    status: log.status,
+    detail: log.detail || null,
+    createdAt: log.createdAt || nowIso(),
+  };
+}
+
+function attachNotificationLogs(booking: Booking, logs: NotificationLog[]): Booking {
+  return {
+    ...booking,
+    notificationLogs: logs
+      .filter((log) => log.bookingId === booking.id)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, 12),
   };
 }
 
@@ -145,6 +174,9 @@ async function readData(): Promise<JsonData> {
       pushSubscriptions: (parsed.pushSubscriptions || [])
         .map((subscription) => normalizePushSubscription(subscription))
         .filter((subscription): subscription is PushSubscriptionRecord => Boolean(subscription)),
+      notificationLogs: (parsed.notificationLogs || [])
+        .map((log) => normalizeNotificationLog(log))
+        .filter((log): log is NotificationLog => Boolean(log)),
     };
   } catch {
     const data: JsonData = {
@@ -152,6 +184,7 @@ async function readData(): Promise<JsonData> {
       bookings: [],
       adminUsers: [],
       pushSubscriptions: [],
+      notificationLogs: [],
     };
     await writeData(data);
     return data;
@@ -248,7 +281,36 @@ export class JsonStore {
         }
         return overlaps(booking.startAtUtc, booking.endAtUtc, fromUtc, toUtc);
       })
+      .map((booking) => attachNotificationLogs(booking, data.notificationLogs))
       .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
+  }
+
+  async listNotificationLogs(bookingId?: string): Promise<NotificationLog[]> {
+    const data = await readData();
+    return data.notificationLogs
+      .map((log) => normalizeNotificationLog(log))
+      .filter((log): log is NotificationLog => Boolean(log))
+      .filter((log) => !bookingId || log.bookingId === bookingId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async createNotificationLog(input: NotificationLogInput): Promise<NotificationLog> {
+    const data = await readData();
+    const log = normalizeNotificationLog({
+      id: crypto.randomUUID(),
+      bookingId: input.bookingId,
+      kind: input.kind,
+      channel: input.channel,
+      status: input.status,
+      detail: input.detail?.slice(0, 1000) || null,
+      createdAt: nowIso(),
+    });
+    if (!log) {
+      throw new Error("INVALID_NOTIFICATION_LOG");
+    }
+    data.notificationLogs.push(log);
+    await writeData(data);
+    return log;
   }
 
   async createBooking(input: BookingInput): Promise<Booking> {
@@ -409,6 +471,7 @@ export class JsonStore {
     const data = await readData();
     const before = data.bookings.length;
     data.bookings = data.bookings.filter((booking) => booking.id !== id);
+    data.notificationLogs = data.notificationLogs.filter((log) => log.bookingId !== id);
     await writeData(data);
     return data.bookings.length !== before;
   }

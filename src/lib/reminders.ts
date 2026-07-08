@@ -1,7 +1,8 @@
 import { sendBookingReminder } from "@/lib/email";
+import { recordNotificationLog } from "@/lib/notification-log";
 import { buildReminderPushPayload, sendAdminPushNotification, sendBookingCreatedPush, type PushDeliveryStore } from "@/lib/push";
 import { getStore } from "@/lib/storage";
-import type { Booking } from "@/lib/types";
+import type { Booking, NotificationKind } from "@/lib/types";
 
 export type ReminderKind = "24h" | "1h";
 
@@ -15,6 +16,13 @@ export const reminder1hLookaheadMs = reminderConfigs["1h"].lookaheadMs;
 
 type ReminderStore = PushDeliveryStore & {
   listBookings(fromUtc?: string, toUtc?: string): Promise<Booking[]>;
+  createNotificationLog(input: {
+    bookingId: string;
+    kind: NotificationKind;
+    channel: "email" | "push";
+    status: "sent" | "failed" | "skipped";
+    detail?: string | null;
+  }): Promise<unknown>;
   markBookingReminder24hSent(id: string, sentAt: string): Promise<Booking | null>;
   markBookingReminder24hFailed(id: string, error: string): Promise<Booking | null>;
   markBookingReminder1hSent(id: string, sentAt: string): Promise<Booking | null>;
@@ -37,6 +45,27 @@ export type ReminderSent = {
 
 function normalizeReminderError(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 1000);
+}
+
+function getReminderNotificationKind(kind: ReminderKind): NotificationKind {
+  return kind === "24h" ? "reminder_24h" : "reminder_1h";
+}
+
+async function recordReminderChannel(
+  store: ReminderStore,
+  booking: Booking,
+  kind: ReminderKind,
+  channel: "email" | "push",
+  status: "sent" | "failed" | "skipped",
+  detail?: string | null
+): Promise<void> {
+  await recordNotificationLog(store, {
+    bookingId: booking.id,
+    kind: getReminderNotificationKind(kind),
+    channel,
+    status,
+    detail: detail || null,
+  });
 }
 
 function getReminderSentAt(booking: Booking, kind: ReminderKind): string | null {
@@ -102,11 +131,16 @@ async function sendReminderChannels(booking: Booking, kind: ReminderKind, store:
       const emailResult = await sendBookingReminder(booking);
       if (emailResult.sent) {
         emailSent = true;
+        await recordReminderChannel(store, booking, kind, "email", "sent", "email_sent");
       } else {
-        errors.push(`email:${emailResult.reason || "not_sent"}`);
+        const reason = emailResult.reason || "not_sent";
+        await recordReminderChannel(store, booking, kind, "email", "skipped", reason);
+        errors.push(`email:${reason}`);
       }
     } catch (error) {
-      errors.push(`email:${normalizeReminderError(error)}`);
+      const message = normalizeReminderError(error);
+      await recordReminderChannel(store, booking, kind, "email", "failed", message);
+      errors.push(`email:${message}`);
     }
   }
 
@@ -114,13 +148,25 @@ async function sendReminderChannels(booking: Booking, kind: ReminderKind, store:
     const pushResult = await sendAdminPushNotification(buildReminderPushPayload(booking, kind), store);
     if (pushResult.sent > 0) {
       pushSent = true;
+      await recordReminderChannel(
+        store,
+        booking,
+        kind,
+        "push",
+        "sent",
+        `sent=${pushResult.sent}; failed=${pushResult.failed}; removed=${pushResult.removed}`
+      );
     } else if (pushResult.skippedReason) {
+      await recordReminderChannel(store, booking, kind, "push", "skipped", pushResult.skippedReason);
       errors.push(`push:${pushResult.skippedReason}`);
     } else if (pushResult.failed > 0) {
+      await recordReminderChannel(store, booking, kind, "push", "failed", `${pushResult.failed}_failed`);
       errors.push(`push:${pushResult.failed}_failed`);
     }
   } catch (error) {
-    errors.push(`push:${normalizeReminderError(error)}`);
+    const message = normalizeReminderError(error);
+    await recordReminderChannel(store, booking, kind, "push", "failed", message);
+    errors.push(`push:${message}`);
   }
 
   if (!pushSent) {
@@ -234,8 +280,16 @@ export function queueBookingCreatedPushAndMarkCoveredReminders(booking: Booking)
   void sendBookingCreatedPush(booking, now, store)
     .then(async (result) => {
       if (result.sent > 0) {
+        await recordNotificationLog(store, {
+          bookingId: booking.id,
+          kind: "booking_created",
+          channel: "push",
+          status: "sent",
+          detail: `sent=${result.sent}; failed=${result.failed}; removed=${result.removed}`,
+        });
         for (const kind of coveredKinds) {
           await markReminderSent(store, booking, kind);
+          await recordReminderChannel(store, booking, kind, "push", "skipped", "covered_by_booking_created_push");
         }
         console.log("新預約推送已送出。", {
           bookingId: booking.id,
@@ -245,6 +299,13 @@ export function queueBookingCreatedPushAndMarkCoveredReminders(booking: Booking)
         return;
       }
 
+      await recordNotificationLog(store, {
+        bookingId: booking.id,
+        kind: "booking_created",
+        channel: "push",
+        status: result.skippedReason ? "skipped" : "failed",
+        detail: result.skippedReason || `sent=${result.sent}; failed=${result.failed}; removed=${result.removed}`,
+      });
       console.warn("新預約推送未送出，保留 reminder 後續重試。", {
         bookingId: booking.id,
         coveredReminders: coveredKinds,
@@ -256,7 +317,14 @@ export function queueBookingCreatedPushAndMarkCoveredReminders(booking: Booking)
         await sendReminderForBooking(store, booking, now, fallbackKind);
       }
     })
-    .catch((error: unknown) => {
+    .catch(async (error: unknown) => {
+      await recordNotificationLog(store, {
+        bookingId: booking.id,
+        kind: "booking_created",
+        channel: "push",
+        status: "failed",
+        detail: normalizeReminderError(error),
+      });
       console.error("新預約推送處理失敗，保留 reminder 後續重試。", {
         bookingId: booking.id,
         error: normalizeReminderError(error),
