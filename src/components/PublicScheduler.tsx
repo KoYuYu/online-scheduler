@@ -93,6 +93,8 @@ const publicCopy = {
     selectedSlotPrompt: "請先從行事曆選擇一個或多個可預約時段。",
     selectedSlots: "已選時段",
     selectedCount: (count: number) => `${count} 個`,
+    selectedMobileSummary: (count: number) => `已選 ${count} 個時段`,
+    continueBooking: "繼續預約",
     removeSlotTitle: "移除時段",
     name: "姓名",
     topicPlaceholder: "例如：System Design Interview",
@@ -208,6 +210,8 @@ const publicCopy = {
     selectedSlotPrompt: "Select one or more available times from the calendar first.",
     selectedSlots: "Selected Times",
     selectedCount: (count: number) => `${count} selected`,
+    selectedMobileSummary: (count: number) => `${count} selected`,
+    continueBooking: "Continue",
     removeSlotTitle: "Remove time",
     name: "Name",
     topicPlaceholder: "Example: System Design Interview",
@@ -340,6 +344,7 @@ export function PublicScheduler() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<BookingMessage | null>(null);
   const slotsRequestId = useRef(0);
+  const bookingPanelRef = useRef<HTMLElement | null>(null);
   const bookingTitleInputRef = useRef<HTMLInputElement | null>(null);
   const copy = publicCopy[language];
 
@@ -438,6 +443,7 @@ export function PublicScheduler() {
   );
   const activeDaySlots = activeDay ? slotsByDate.get(activeDay.dateKey) || [] : [];
   const activeDaySlotItems = useMemo(() => buildSlotDisplayItems(activeDaySlots), [activeDaySlots]);
+  const showMobileSelectedBar = mode === "calendar" && selectedSlots.length > 0;
 
   async function requestZoomPreview(sourceTimeZone?: string) {
     setLoading(true);
@@ -725,11 +731,15 @@ export function PublicScheduler() {
     setSelectedSourceTimeZone("");
   }
 
+  function scrollToBookingPanel() {
+    bookingPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const canGoPreviousWeek = weekOffset > 0;
   const canGoNextWeek = weekOffset < maxWeekOffset;
 
   return (
-    <main className="app-shell scheduler-shell" lang={language === "zh" ? "zh-Hant" : "en"}>
+    <main className={`app-shell scheduler-shell ${showMobileSelectedBar ? "has-mobile-selected-bar" : ""}`} lang={language === "zh" ? "zh-Hant" : "en"}>
       <div className="topbar compact">
         <div className="brand">
           <div className="brand-mark">
@@ -892,7 +902,7 @@ export function PublicScheduler() {
           </div>
         </section>
 
-        <aside className="surface booking-surface" aria-labelledby="booking-panel-heading">
+        <aside className="surface booking-surface" ref={bookingPanelRef} aria-labelledby="booking-panel-heading">
           <div className="surface-header slim">
             <div>
               <span className="section-kicker">{copy.booking}</span>
@@ -1035,6 +1045,18 @@ export function PublicScheduler() {
           />
         ) : null}
       </section>
+      {showMobileSelectedBar ? (
+        <div className="mobile-selected-bar">
+          <div>
+            <strong>{copy.selectedMobileSummary(selectedSlots.length)}</strong>
+            <span>{formatMobileSelectedSummary(selectedSlots, language)}</span>
+          </div>
+          <button className="primary-button" type="button" onClick={scrollToBookingPanel}>
+            <Check size={16} />
+            {copy.continueBooking}
+          </button>
+        </div>
+      ) : null}
       <footer className="public-footer">
         <span>{copy.privacyNote}</span>
         <a href="/admin">{copy.adminLink}</a>
@@ -1220,6 +1242,24 @@ function formatDateKeyLong(ymd: string, language: Language): string {
 
 function compareSlotsByStart(left: PublicSlot, right: PublicSlot): number {
   return left.startAtUtc.localeCompare(right.startAtUtc);
+}
+
+function formatMobileSelectedSummary(slots: PublicSlot[], language: Language): string {
+  const sortedSlots = [...slots].sort(compareSlotsByStart);
+  const firstSlot = sortedSlots[0];
+  if (!firstSlot) {
+    return "";
+  }
+  const firstLabel = `${formatDateKeyShort(firstSlot.dateKey, language)}${language === "zh" ? "，" : ", "}${formatEtTimeRange(
+    firstSlot.startAtUtc,
+    firstSlot.endAtUtc,
+    language
+  )}`;
+  const extraCount = sortedSlots.length - 1;
+  if (extraCount <= 0) {
+    return firstLabel;
+  }
+  return language === "zh" ? `${firstLabel}，另 ${extraCount} 個` : `${firstLabel}, +${extraCount} more`;
 }
 
 function buildSlotDisplayItems(slots: PublicSlot[]): SlotDisplayItem[] {
