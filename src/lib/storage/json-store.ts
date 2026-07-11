@@ -6,7 +6,11 @@ import type {
   Booking,
   BookingAttachment,
   BookingAttachmentInput,
+  BookingCreateOptions,
   BookingInput,
+  BookingPage,
+  BookingPageOptions,
+  NotificationJob,
   NotificationLog,
   NotificationLogInput,
   PushSubscriptionInput,
@@ -28,6 +32,7 @@ type JsonData = {
   adminUsers: AdminUser[];
   pushSubscriptions: PushSubscriptionRecord[];
   notificationLogs: NotificationLog[];
+  notificationJobs: NotificationJob[];
 };
 
 let memoryData: JsonData | null = null;
@@ -108,6 +113,26 @@ function normalizeNotificationLog(log: Partial<NotificationLog>): NotificationLo
   };
 }
 
+function normalizeNotificationJob(job: Partial<NotificationJob>): NotificationJob | null {
+  if (!job.id || !job.dedupeKey || !job.kind || !Array.isArray(job.bookingIds) || !job.status) {
+    return null;
+  }
+  const timestamp = nowIso();
+  return {
+    id: job.id,
+    dedupeKey: job.dedupeKey,
+    kind: job.kind,
+    bookingIds: job.bookingIds.map(String),
+    status: job.status,
+    attempts: Number(job.attempts || 0),
+    availableAt: job.availableAt || timestamp,
+    lockedAt: job.lockedAt || null,
+    lastError: job.lastError || null,
+    createdAt: job.createdAt || timestamp,
+    updatedAt: job.updatedAt || timestamp,
+  };
+}
+
 function attachNotificationLogs(booking: Booking, logs: NotificationLog[]): Booking {
   return {
     ...booking,
@@ -115,6 +140,14 @@ function attachNotificationLogs(booking: Booking, logs: NotificationLog[]): Book
       .filter((log) => log.bookingId === booking.id)
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
       .slice(0, 12),
+  };
+}
+
+function withoutAttachmentData(booking: Booking): Booking {
+  return {
+    ...booking,
+    attachmentDataBase64: null,
+    attachments: booking.attachments.map(({ dataBase64: _dataBase64, ...attachment }) => attachment),
   };
 }
 
@@ -177,6 +210,9 @@ async function readData(): Promise<JsonData> {
       notificationLogs: (parsed.notificationLogs || [])
         .map((log) => normalizeNotificationLog(log))
         .filter((log): log is NotificationLog => Boolean(log)),
+      notificationJobs: (parsed.notificationJobs || [])
+        .map((job) => normalizeNotificationJob(job))
+        .filter((job): job is NotificationJob => Boolean(job)),
     };
   } catch {
     const data: JsonData = {
@@ -185,6 +221,7 @@ async function readData(): Promise<JsonData> {
       adminUsers: [],
       pushSubscriptions: [],
       notificationLogs: [],
+      notificationJobs: [],
     };
     await writeData(data);
     return data;
@@ -285,6 +322,56 @@ export class JsonStore {
       .sort((a, b) => a.startAtUtc.localeCompare(b.startAtUtc));
   }
 
+  async getBookingsByIds(ids: string[], includeAttachmentData = true): Promise<Booking[]> {
+    const data = await readData();
+    const byId = new Map(
+      data.bookings
+        .map(normalizeBooking)
+        .map((booking) => [booking.id, attachNotificationLogs(booking, data.notificationLogs)] as const)
+    );
+    return ids
+      .map((id) => byId.get(id))
+      .filter((booking): booking is Booking => Boolean(booking))
+      .map((booking) => includeAttachmentData ? booking : withoutAttachmentData(booking));
+  }
+
+  async listBookingPage(options: BookingPageOptions): Promise<BookingPage> {
+    const data = await readData();
+    const nowTime = new Date(options.now).getTime();
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit || 30)));
+    const direction = options.scope === "past" ? -1 : 1;
+    const scoped = data.bookings
+      .map(normalizeBooking)
+      .filter((booking) =>
+        options.scope === "past"
+          ? new Date(booking.endAtUtc).getTime() < nowTime
+          : new Date(booking.endAtUtc).getTime() >= nowTime
+      )
+      .sort((left, right) => direction * (left.startAtUtc.localeCompare(right.startAtUtc) || left.id.localeCompare(right.id)));
+    const afterCursor = options.cursor
+      ? scoped.filter((booking) => {
+          const comparison = booking.startAtUtc.localeCompare(options.cursor!.startAtUtc) || booking.id.localeCompare(options.cursor!.id);
+          return direction * comparison > 0;
+        })
+      : scoped;
+    const pageItems = afterCursor.slice(0, limit);
+    const last = pageItems[pageItems.length - 1];
+    return {
+      bookings: pageItems.map((booking) => withoutAttachmentData(attachNotificationLogs(booking, data.notificationLogs))),
+      nextCursor: afterCursor.length > limit && last ? { startAtUtc: last.startAtUtc, id: last.id } : null,
+      total: scoped.length,
+    };
+  }
+
+  async getBookingAttachment(bookingId: string, attachmentId: string): Promise<BookingAttachment | null> {
+    const data = await readData();
+    const booking = data.bookings.find((item) => item.id === bookingId);
+    if (!booking) {
+      return null;
+    }
+    return normalizeBooking(booking).attachments.find((attachment) => attachment.id === attachmentId) || null;
+  }
+
   async listNotificationLogs(bookingId?: string): Promise<NotificationLog[]> {
     const data = await readData();
     return data.notificationLogs
@@ -313,47 +400,131 @@ export class JsonStore {
     return log;
   }
 
-  async createBooking(input: BookingInput): Promise<Booking> {
+  async claimNotificationJobs(limit = 10, now = new Date()): Promise<NotificationJob[]> {
     const data = await readData();
-    const conflict = data.bookings.find(
-      (booking) =>
-        booking.status !== "cancelled" && overlaps(input.startAtUtc, input.endAtUtc, booking.startAtUtc, booking.endAtUtc)
+    const nowTime = now.getTime();
+    const staleBefore = nowTime - 10 * 60 * 1000;
+    const jobs = data.notificationJobs
+      .filter((job) => {
+        const due = new Date(job.availableAt).getTime() <= nowTime;
+        const stale = job.status === "processing" && (!job.lockedAt || new Date(job.lockedAt).getTime() < staleBefore);
+        return due && (job.status === "pending" || stale);
+      })
+      .sort((left, right) => left.availableAt.localeCompare(right.availableAt) || left.createdAt.localeCompare(right.createdAt))
+      .slice(0, Math.max(1, Math.min(50, Math.floor(limit))));
+    const claimedIds = new Set(jobs.map((job) => job.id));
+    data.notificationJobs = data.notificationJobs.map((job) =>
+      claimedIds.has(job.id)
+        ? { ...job, status: "processing", attempts: job.attempts + 1, lockedAt: now.toISOString(), updatedAt: nowIso() }
+        : job
     );
-    if (conflict) {
-      throw new Error("BOOKING_CONFLICT");
+    await writeData(data);
+    return data.notificationJobs.filter((job) => claimedIds.has(job.id));
+  }
+
+  async markNotificationJobSent(id: string): Promise<void> {
+    const data = await readData();
+    data.notificationJobs = data.notificationJobs.map((job) =>
+      job.id === id ? { ...job, status: "sent", lockedAt: null, lastError: null, updatedAt: nowIso() } : job
+    );
+    await writeData(data);
+  }
+
+  async markNotificationJobFailed(id: string, error: string, nextAttemptAt: string, terminal: boolean): Promise<void> {
+    const data = await readData();
+    data.notificationJobs = data.notificationJobs.map((job) =>
+      job.id === id
+        ? {
+            ...job,
+            status: terminal ? "failed" : "pending",
+            availableAt: nextAttemptAt,
+            lockedAt: null,
+            lastError: error.slice(0, 1000),
+            updatedAt: nowIso(),
+          }
+        : job
+    );
+    await writeData(data);
+  }
+
+  async createBooking(input: BookingInput, options: BookingCreateOptions = {}): Promise<Booking> {
+    const [booking] = await this.createBookings([input], options);
+    return booking;
+  }
+
+  async createBookings(inputs: BookingInput[], options: BookingCreateOptions = {}): Promise<Booking[]> {
+    if (!inputs.length) {
+      return [];
+    }
+    const data = await readData();
+    for (let leftIndex = 0; leftIndex < inputs.length; leftIndex += 1) {
+      const input = inputs[leftIndex];
+      const conflict = data.bookings.find(
+        (booking) =>
+          booking.status !== "cancelled" && overlaps(input.startAtUtc, input.endAtUtc, booking.startAtUtc, booking.endAtUtc)
+      );
+      if (conflict) {
+        throw new Error("BOOKING_CONFLICT");
+      }
+      for (let rightIndex = leftIndex + 1; rightIndex < inputs.length; rightIndex += 1) {
+        if (overlaps(input.startAtUtc, input.endAtUtc, inputs[rightIndex].startAtUtc, inputs[rightIndex].endAtUtc)) {
+          throw new Error("BOOKING_INPUT_OVERLAP");
+        }
+      }
     }
     const timestamp = nowIso();
-    const attachments = inputAttachments(input);
-    const firstAttachment = attachments[0] || null;
-    const booking: Booking = {
-      id: crypto.randomUUID(),
-      source: input.source,
-      title: input.title,
-      startAtUtc: input.startAtUtc,
-      endAtUtc: input.endAtUtc,
-      bookerName: input.bookerName || null,
-      bookerEmail: input.bookerEmail || null,
-      notes: input.notes || null,
-      invitedByName: input.invitedByName || null,
-      zoomJoinUrl: input.zoomJoinUrl || null,
-      meetingId: input.meetingId || null,
-      passcode: input.passcode || null,
-      rawInviteText: input.rawInviteText || null,
-      attachmentFileName: firstAttachment?.fileName || null,
-      attachmentMimeType: firstAttachment?.mimeType || null,
-      attachmentDataBase64: firstAttachment?.dataBase64 || null,
-      attachments,
-      reminder24hSentAt: null,
-      reminder24hLastError: null,
-      reminder1hSentAt: null,
-      reminder1hLastError: null,
-      status: "confirmed",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-    data.bookings.push(booking);
+    const bookings = inputs.map((input): Booking => {
+      const attachments = inputAttachments(input);
+      const firstAttachment = attachments[0] || null;
+      return {
+        id: crypto.randomUUID(),
+        source: input.source,
+        title: input.title,
+        startAtUtc: input.startAtUtc,
+        endAtUtc: input.endAtUtc,
+        bookerName: input.bookerName || null,
+        bookerEmail: input.bookerEmail || null,
+        notes: input.notes || null,
+        invitedByName: input.invitedByName || null,
+        zoomJoinUrl: input.zoomJoinUrl || null,
+        meetingId: input.meetingId || null,
+        passcode: input.passcode || null,
+        rawInviteText: input.rawInviteText || null,
+        attachmentFileName: firstAttachment?.fileName || null,
+        attachmentMimeType: firstAttachment?.mimeType || null,
+        attachmentDataBase64: firstAttachment?.dataBase64 || null,
+        attachments,
+        reminder24hSentAt: null,
+        reminder24hLastError: null,
+        reminder1hSentAt: null,
+        reminder1hLastError: null,
+        status: "confirmed",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+    });
+    data.bookings.push(...bookings);
+    const batchKey = options.notificationBatchKey || crypto.randomUUID();
+    for (const channel of [...new Set(options.notificationChannels || [])]) {
+      const job = normalizeNotificationJob({
+        id: crypto.randomUUID(),
+        dedupeKey: `${batchKey}:${channel}`,
+        kind: channel === "email" ? "booking_created_email" : "booking_created_push",
+        bookingIds: bookings.map((booking) => booking.id),
+        status: "pending",
+        attempts: 0,
+        availableAt: timestamp,
+        lockedAt: null,
+        lastError: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      if (job && !data.notificationJobs.some((existing) => existing.dedupeKey === job.dedupeKey)) {
+        data.notificationJobs.push(job);
+      }
+    }
     await writeData(data);
-    return booking;
+    return bookings;
   }
 
   async updateBooking(id: string, input: Partial<BookingInput & { status: Booking["status"] }>): Promise<Booking | null> {

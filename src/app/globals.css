@@ -910,6 +910,11 @@ button:disabled {
   gap: 10px;
 }
 
+.booking-load-more {
+  justify-self: center;
+  margin-top: 4px;
+}
+
 .booking-section-head,
 .history-toggle {
   min-width: 0;

@@ -82,6 +82,21 @@ export function buildBookingCreatedPushPayload(booking: Booking, now = new Date(
   };
 }
 
+export function buildBookingBatchCreatedPushPayload(bookings: Booking[], now = new Date()): AdminPushPayload {
+  if (bookings.length === 1) {
+    return buildBookingCreatedPushPayload(bookings[0], now);
+  }
+  const sorted = [...bookings].sort((left, right) => left.startAtUtc.localeCompare(right.startAtUtc));
+  return {
+    title: `新增 ${bookings.length} 個預約：${sorted[0]?.title || "預約會議"}`,
+    body: sorted.map((booking) => formatEtDateTimeRangeLabel(booking.startAtUtc, booking.endAtUtc)).join("、"),
+    url: "/admin",
+    tag: `booking-created-batch-${sorted[0]?.id || Date.now()}`,
+    bookingId: sorted[0]?.id,
+    kind: "booking_created",
+  };
+}
+
 export async function sendAdminPushNotification(
   payload: AdminPushPayload,
   store: PushDeliveryStore = getStore()
@@ -133,36 +148,15 @@ export async function sendBookingCreatedPush(
   return sendAdminPushNotification(buildBookingCreatedPushPayload(booking, now), store);
 }
 
-export function queueAdminPushNotification(payload: AdminPushPayload, logLabel = "管理員推送"): void {
-  void sendAdminPushNotification(payload)
-    .then((result) => {
-      if (result.sent > 0) {
-        console.log(`${logLabel}已送出。`, result);
-        return;
-      }
-      console.warn(`${logLabel}未送出。`, result);
-    })
-    .catch((error: unknown) => {
-      console.error(`${logLabel}處理失敗。`, {
-        error: normalizePushError(error),
-      });
-    });
-}
-
-export function queueBookingCreatedPush(booking: Booking): void {
-  void sendBookingCreatedPush(booking)
-    .then((result) => {
-      if (result.sent > 0) {
-        console.log("新預約推送已送出。", result);
-        return;
-      }
-      console.warn("新預約推送未送出。", result);
-    })
-    .catch((error: unknown) => {
-      console.error("新預約推送處理失敗。", {
-        error: normalizePushError(error),
-      });
-    });
+export async function sendBookingBatchCreatedPush(
+  bookings: Booking[],
+  now = new Date(),
+  store: PushDeliveryStore = getStore()
+): Promise<AdminPushResult> {
+  if (!bookings.length) {
+    return { sent: 0, failed: 0, removed: 0, skippedReason: "booking_not_found" };
+  }
+  return sendAdminPushNotification(buildBookingBatchCreatedPushPayload(bookings, now), store);
 }
 
 export function buildReminderPushPayload(booking: Booking, kind: "24h" | "1h"): AdminPushPayload {

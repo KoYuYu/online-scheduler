@@ -5,7 +5,11 @@ import type {
   Booking,
   BookingAttachment,
   BookingAttachmentInput,
+  BookingCreateOptions,
   BookingInput,
+  BookingPage,
+  BookingPageOptions,
+  NotificationJob,
   NotificationLog,
   NotificationLogInput,
   PushSubscriptionInput,
@@ -32,24 +36,28 @@ function byteaToBase64(value: unknown): string | null {
   return null;
 }
 
-function mapAttachment(row: Record<string, unknown>): BookingAttachment {
+function mapAttachment(row: Record<string, unknown>, includeData = true): BookingAttachment {
   return {
     id: String(row.id),
     fileName: String(row.file_name),
     mimeType: String(row.mime_type || "application/octet-stream"),
-    dataBase64: byteaToBase64(row.data) || "",
+    ...(includeData ? { dataBase64: byteaToBase64(row.data) || "" } : {}),
     createdAt: new Date(row.created_at as string).toISOString(),
   };
 }
 
-function mapBooking(row: Record<string, unknown>, attachments: BookingAttachment[] = []): Booking {
+function mapBooking(
+  row: Record<string, unknown>,
+  attachments: BookingAttachment[] = [],
+  includeAttachmentData = true
+): Booking {
   const legacyAttachment =
-    row.attachment_file_name && row.attachment_data
+    row.attachment_file_name
       ? {
           id: `legacy-${String(row.id)}`,
           fileName: String(row.attachment_file_name),
           mimeType: String(row.attachment_mime_type || "application/octet-stream"),
-          dataBase64: byteaToBase64(row.attachment_data) || "",
+          ...(includeAttachmentData ? { dataBase64: byteaToBase64(row.attachment_data) || "" } : {}),
           createdAt: new Date(row.created_at as string).toISOString(),
         }
       : null;
@@ -71,13 +79,30 @@ function mapBooking(row: Record<string, unknown>, attachments: BookingAttachment
     rawInviteText: (row.raw_invite_text as string | null) || null,
     attachmentFileName: firstAttachment?.fileName || null,
     attachmentMimeType: firstAttachment?.mimeType || null,
-    attachmentDataBase64: firstAttachment?.dataBase64 || null,
+    attachmentDataBase64: includeAttachmentData ? firstAttachment?.dataBase64 || null : null,
     attachments: finalAttachments,
     reminder24hSentAt: row.reminder_24h_sent_at ? new Date(row.reminder_24h_sent_at as string).toISOString() : null,
     reminder24hLastError: (row.reminder_24h_last_error as string | null) || null,
     reminder1hSentAt: row.reminder_1h_sent_at ? new Date(row.reminder_1h_sent_at as string).toISOString() : null,
     reminder1hLastError: (row.reminder_1h_last_error as string | null) || null,
     status: row.status as Booking["status"],
+    createdAt: new Date(row.created_at as string).toISOString(),
+    updatedAt: new Date(row.updated_at as string).toISOString(),
+  };
+}
+
+function mapNotificationJob(row: Record<string, unknown>): NotificationJob {
+  const rawBookingIds = Array.isArray(row.booking_ids) ? row.booking_ids : [];
+  return {
+    id: String(row.id),
+    dedupeKey: String(row.dedupe_key),
+    kind: row.kind as NotificationJob["kind"],
+    bookingIds: rawBookingIds.map(String),
+    status: row.status as NotificationJob["status"],
+    attempts: Number(row.attempts),
+    availableAt: new Date(row.available_at as string).toISOString(),
+    lockedAt: row.locked_at ? new Date(row.locked_at as string).toISOString() : null,
+    lastError: (row.last_error as string | null) || null,
     createdAt: new Date(row.created_at as string).toISOString(),
     updatedAt: new Date(row.updated_at as string).toISOString(),
   };
@@ -122,7 +147,9 @@ function mapNotificationLog(row: Record<string, unknown>): NotificationLog {
   };
 }
 
-function normalizeAttachmentInput(input: BookingAttachmentInput): Omit<BookingAttachment, "id" | "createdAt"> | null {
+type StoredAttachment = { fileName: string; mimeType: string; dataBase64: string };
+
+function normalizeAttachmentInput(input: BookingAttachmentInput): StoredAttachment | null {
   if (!input.fileName || !input.dataBase64) {
     return null;
   }
@@ -133,10 +160,10 @@ function normalizeAttachmentInput(input: BookingAttachmentInput): Omit<BookingAt
   };
 }
 
-function inputAttachments(input: Partial<BookingInput>): Array<Omit<BookingAttachment, "id" | "createdAt">> {
+function inputAttachments(input: Partial<BookingInput>): StoredAttachment[] {
   const attachments = (input.attachments || [])
     .map((attachment) => normalizeAttachmentInput(attachment))
-    .filter((attachment): attachment is Omit<BookingAttachment, "id" | "createdAt"> => Boolean(attachment));
+    .filter((attachment): attachment is StoredAttachment => Boolean(attachment));
 
   if (attachments.length) {
     return attachments;
@@ -241,28 +268,85 @@ export class PostgresStore {
     return this.mapBookingsWithAttachments(result.rows);
   }
 
-  private async mapBookingsWithAttachments(rows: Record<string, unknown>[]): Promise<Booking[]> {
+  async getBookingsByIds(ids: string[], includeAttachmentData = true): Promise<Booking[]> {
+    if (!ids.length) {
+      return [];
+    }
+    const result = await this.pool.query("SELECT * FROM bookings WHERE id = ANY($1::text[])", [ids]);
+    const bookings = await this.mapBookingsWithAttachments(result.rows, includeAttachmentData);
+    const byId = new Map(bookings.map((booking) => [booking.id, booking]));
+    return ids.map((id) => byId.get(id)).filter((booking): booking is Booking => Boolean(booking));
+  }
+
+  async listBookingPage(options: BookingPageOptions): Promise<BookingPage> {
+    const limit = Math.max(1, Math.min(100, Math.floor(options.limit || 30)));
+    const params: unknown[] = [options.now];
+    const where = [options.scope === "past" ? "end_at_utc < $1::timestamptz" : "end_at_utc >= $1::timestamptz"];
+    if (options.cursor) {
+      params.push(options.cursor.startAtUtc, options.cursor.id);
+      where.push(
+        options.scope === "past"
+          ? "(start_at_utc < $2::timestamptz OR (start_at_utc = $2::timestamptz AND id < $3))"
+          : "(start_at_utc > $2::timestamptz OR (start_at_utc = $2::timestamptz AND id > $3))"
+      );
+    }
+    params.push(limit + 1);
+    const limitParam = `$${params.length}`;
+    const direction = options.scope === "past" ? "DESC" : "ASC";
+    const result = await this.pool.query(
+      `SELECT id, source, title, start_at_utc, end_at_utc, booker_name, booker_email, notes,
+              invited_by_name, zoom_join_url, meeting_id, passcode, raw_invite_text,
+              attachment_file_name, attachment_mime_type, NULL::bytea AS attachment_data,
+              reminder_24h_sent_at, reminder_24h_last_error, reminder_1h_sent_at, reminder_1h_last_error,
+              status, created_at, updated_at
+       FROM bookings
+       WHERE ${where.join(" AND ")}
+       ORDER BY start_at_utc ${direction}, id ${direction}
+       LIMIT ${limitParam}`,
+      params
+    );
+    const countResult = await this.pool.query(
+      `SELECT COUNT(*)::int AS count FROM bookings
+       WHERE ${options.scope === "past" ? "end_at_utc < $1::timestamptz" : "end_at_utc >= $1::timestamptz"}`,
+      [options.now]
+    );
+    const hasMore = result.rows.length > limit;
+    const pageRows = result.rows.slice(0, limit);
+    const bookings = await this.mapBookingsWithAttachments(pageRows, false);
+    const last = bookings[bookings.length - 1];
+    return {
+      bookings,
+      nextCursor: hasMore && last ? { startAtUtc: last.startAtUtc, id: last.id } : null,
+      total: Number(countResult.rows[0]?.count || 0),
+    };
+  }
+
+  private async mapBookingsWithAttachments(rows: Record<string, unknown>[], includeAttachmentData = true): Promise<Booking[]> {
     if (!rows.length) {
       return [];
     }
     const ids = rows.map((row) => String(row.id));
     const [attachmentsByBookingId, notificationLogsByBookingId] = await Promise.all([
-      this.listAttachmentsByBookingIds(ids),
+      this.listAttachmentsByBookingIds(ids, this.pool, includeAttachmentData),
       this.listNotificationLogsByBookingIds(ids),
     ]);
     return rows.map((row) => ({
-      ...mapBooking(row, attachmentsByBookingId.get(String(row.id)) || []),
+      ...mapBooking(row, attachmentsByBookingId.get(String(row.id)) || [], includeAttachmentData),
       notificationLogs: (notificationLogsByBookingId.get(String(row.id)) || []).slice(0, 12),
     }));
   }
 
-  private async listAttachmentsByBookingIds(ids: string[], client: Pool | PoolClient = this.pool): Promise<Map<string, BookingAttachment[]>> {
+  private async listAttachmentsByBookingIds(
+    ids: string[],
+    client: Pool | PoolClient = this.pool,
+    includeData = true
+  ): Promise<Map<string, BookingAttachment[]>> {
     const attachmentsByBookingId = new Map<string, BookingAttachment[]>();
     if (!ids.length) {
       return attachmentsByBookingId;
     }
     const result = await client.query(
-      `SELECT * FROM booking_attachments
+      `SELECT id, booking_id, file_name, mime_type, created_at${includeData ? ", data" : ""} FROM booking_attachments
        WHERE booking_id = ANY($1::text[])
        ORDER BY created_at, id`,
       [ids]
@@ -270,10 +354,20 @@ export class PostgresStore {
     for (const row of result.rows) {
       const bookingId = String(row.booking_id);
       const current = attachmentsByBookingId.get(bookingId) || [];
-      current.push(mapAttachment(row));
+      current.push(mapAttachment(row, includeData));
       attachmentsByBookingId.set(bookingId, current);
     }
     return attachmentsByBookingId;
+  }
+
+  async getBookingAttachment(bookingId: string, attachmentId: string): Promise<BookingAttachment | null> {
+    const result = await this.pool.query(
+      `SELECT id, booking_id, file_name, mime_type, data, created_at
+       FROM booking_attachments
+       WHERE booking_id = $1 AND id = $2`,
+      [bookingId, attachmentId]
+    );
+    return result.rowCount ? mapAttachment(result.rows[0], true) : null;
   }
 
   private async listNotificationLogsByBookingIds(ids: string[], client: Pool | PoolClient = this.pool): Promise<Map<string, NotificationLog[]>> {
@@ -320,10 +414,60 @@ export class PostgresStore {
     return mapNotificationLog(result.rows[0]);
   }
 
+  async claimNotificationJobs(limit = 10, now = new Date()): Promise<NotificationJob[]> {
+    const safeLimit = Math.max(1, Math.min(50, Math.floor(limit)));
+    const result = await this.pool.query(
+      `WITH due_jobs AS (
+         SELECT id
+         FROM notification_jobs
+         WHERE available_at <= $1::timestamptz
+           AND (
+             status = 'pending'
+             OR (status = 'processing' AND locked_at < $1::timestamptz - interval '10 minutes')
+           )
+         ORDER BY available_at, created_at
+         FOR UPDATE SKIP LOCKED
+         LIMIT $2
+       )
+       UPDATE notification_jobs AS jobs
+       SET status = 'processing',
+           attempts = jobs.attempts + 1,
+           locked_at = $1::timestamptz,
+           updated_at = now()
+       FROM due_jobs
+       WHERE jobs.id = due_jobs.id
+       RETURNING jobs.*`,
+      [now.toISOString(), safeLimit]
+    );
+    return result.rows.map(mapNotificationJob);
+  }
+
+  async markNotificationJobSent(id: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE notification_jobs
+       SET status = 'sent', locked_at = NULL, last_error = NULL, updated_at = now()
+       WHERE id = $1`,
+      [id]
+    );
+  }
+
+  async markNotificationJobFailed(id: string, error: string, nextAttemptAt: string, terminal: boolean): Promise<void> {
+    await this.pool.query(
+      `UPDATE notification_jobs
+       SET status = $2,
+           available_at = $3::timestamptz,
+           locked_at = NULL,
+           last_error = $4,
+           updated_at = now()
+       WHERE id = $1`,
+      [id, terminal ? "failed" : "pending", nextAttemptAt, error.slice(0, 1000)]
+    );
+  }
+
   private async replaceBookingAttachments(
     client: PoolClient,
     bookingId: string,
-    attachments: Array<Omit<BookingAttachment, "id" | "createdAt">>
+    attachments: StoredAttachment[]
   ): Promise<void> {
     await client.query("DELETE FROM booking_attachments WHERE booking_id = $1", [bookingId]);
     await this.appendBookingAttachments(client, bookingId, attachments);
@@ -332,7 +476,7 @@ export class PostgresStore {
   private async appendBookingAttachments(
     client: PoolClient,
     bookingId: string,
-    attachments: Array<Omit<BookingAttachment, "id" | "createdAt">>
+    attachments: StoredAttachment[]
   ): Promise<void> {
     for (const attachment of attachments) {
       await client.query(
@@ -349,29 +493,81 @@ export class PostgresStore {
     }
   }
 
-  async createBooking(input: BookingInput): Promise<Booking> {
-    const client = await this.pool.connect();
-    try {
-      await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
-      const conflict = await client.query(
-        `SELECT id FROM bookings
-         WHERE status <> 'cancelled'
-           AND start_at_utc < $2::timestamptz
-           AND end_at_utc > $1::timestamptz
-         LIMIT 1`,
-        [input.startAtUtc, input.endAtUtc]
-      );
-      if (conflict.rowCount) {
-        throw new Error("BOOKING_CONFLICT");
+  async createBooking(input: BookingInput, options: BookingCreateOptions = {}): Promise<Booking> {
+    const [booking] = await this.createBookings([input], options);
+    return booking;
+  }
+
+  async createBookings(inputs: BookingInput[], options: BookingCreateOptions = {}): Promise<Booking[]> {
+    if (!inputs.length) {
+      return [];
+    }
+    for (let leftIndex = 0; leftIndex < inputs.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < inputs.length; rightIndex += 1) {
+        const left = inputs[leftIndex];
+        const right = inputs[rightIndex];
+        if (new Date(left.startAtUtc).getTime() < new Date(right.endAtUtc).getTime() && new Date(left.endAtUtc).getTime() > new Date(right.startAtUtc).getTime()) {
+          throw new Error("BOOKING_INPUT_OVERLAP");
+        }
       }
-      const booking = await this.insertBooking(client, input);
-      await client.query("COMMIT");
-      return booking;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
+    }
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const client = await this.pool.connect();
+      try {
+        await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+        for (const input of inputs) {
+          const conflict = await client.query(
+            `SELECT id FROM bookings
+             WHERE status <> 'cancelled'
+               AND start_at_utc < $2::timestamptz
+               AND end_at_utc > $1::timestamptz
+             LIMIT 1`,
+            [input.startAtUtc, input.endAtUtc]
+          );
+          if (conflict.rowCount) {
+            throw new Error("BOOKING_CONFLICT");
+          }
+        }
+        const bookings: Booking[] = [];
+        for (const input of inputs) {
+          bookings.push(await this.insertBooking(client, input));
+        }
+        await this.enqueueBookingCreatedJobs(client, bookings.map((booking) => booking.id), options);
+        await client.query("COMMIT");
+        return bookings;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        const isSerializationFailure = typeof error === "object" && error !== null && "code" in error && error.code === "40001";
+        if (isSerializationFailure && attempt < 2) {
+          continue;
+        }
+        if (isSerializationFailure) {
+          throw new Error("BOOKING_CONFLICT");
+        }
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    throw new Error("BOOKING_CONFLICT");
+  }
+
+  private async enqueueBookingCreatedJobs(
+    client: PoolClient,
+    bookingIds: string[],
+    options: BookingCreateOptions
+  ): Promise<void> {
+    const channels = [...new Set(options.notificationChannels || [])];
+    const batchKey = options.notificationBatchKey || crypto.randomUUID();
+    for (const channel of channels) {
+      const kind = channel === "email" ? "booking_created_email" : "booking_created_push";
+      await client.query(
+        `INSERT INTO notification_jobs (id, dedupe_key, kind, booking_ids)
+         VALUES ($1, $2, $3, $4::jsonb)
+         ON CONFLICT (dedupe_key) DO NOTHING`,
+        [crypto.randomUUID(), `${batchKey}:${channel}`, kind, JSON.stringify(bookingIds)]
+      );
     }
   }
 
@@ -427,14 +623,14 @@ export class PostgresStore {
       const replacementAttachments = input.attachments !== undefined || legacyAttachmentPatch ? inputAttachments(input) : currentBooking.attachments;
       const appendAttachments = (input.appendAttachments || [])
         .map((attachment) => normalizeAttachmentInput(attachment))
-        .filter((attachment): attachment is Omit<BookingAttachment, "id" | "createdAt"> => Boolean(attachment));
+        .filter((attachment): attachment is StoredAttachment => Boolean(attachment));
       const removedIds = new Set(input.removeAttachmentIds || []);
       const nextAttachments = (input.clearAttachments ? [] : replacementAttachments)
         .filter((attachment) => !("id" in attachment) || typeof attachment.id !== "string" || !removedIds.has(attachment.id))
-        .map((attachment) => ({
+        .map((attachment): StoredAttachment => ({
           fileName: attachment.fileName,
           mimeType: attachment.mimeType,
-          dataBase64: attachment.dataBase64,
+          dataBase64: attachment.dataBase64 || "",
         }))
         .concat(appendAttachments);
       const firstAttachment = nextAttachments[0] || null;

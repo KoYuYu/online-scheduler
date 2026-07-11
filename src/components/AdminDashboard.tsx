@@ -71,6 +71,13 @@ type AdminPushSubscriptionSummary = {
   updatedAt: string;
 };
 
+type AdminCalendarPage = {
+  bookings: Booking[];
+  rules: AvailabilityRule[];
+  nextCursor: string | null;
+  total: number;
+};
+
 export function AdminDashboard() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const [email, setEmail] = useState("");
@@ -88,6 +95,11 @@ export function AdminDashboard() {
   const [editAttachmentError, setEditAttachmentError] = useState<string | null>(null);
   const [editFileInputKey, setEditFileInputKey] = useState(0);
   const [pastBookingsExpanded, setPastBookingsExpanded] = useState(false);
+  const [upcomingCursor, setUpcomingCursor] = useState<string | null>(null);
+  const [pastCursor, setPastCursor] = useState<string | null>(null);
+  const [upcomingTotal, setUpcomingTotal] = useState(0);
+  const [pastTotal, setPastTotal] = useState(0);
+  const [calendarLoadingMore, setCalendarLoadingMore] = useState<"upcoming" | "past" | null>(null);
   const [pushSubscriptions, setPushSubscriptions] = useState<AdminPushSubscriptionSummary[]>([]);
   const [pushPublicKey, setPushPublicKey] = useState("");
   const [pushSupported, setPushSupported] = useState(false);
@@ -103,14 +115,61 @@ export function AdminDashboard() {
   }
 
   async function loadCalendar() {
-    const response = await fetch("/api/admin/calendar", { cache: "no-store" });
-    if (!response.ok) {
+    const [upcomingResponse, pastResponse] = await Promise.all([
+      fetch("/api/admin/calendar?scope=upcoming&limit=30", { cache: "no-store" }),
+      fetch("/api/admin/calendar?scope=past&limit=20", { cache: "no-store" }),
+    ]);
+    if (!upcomingResponse.ok || !pastResponse.ok) {
       setAuthenticated(false);
       return;
     }
-    const data = (await response.json()) as { bookings: Booking[]; rules: AvailabilityRule[] };
-    setBookings(data.bookings || []);
-    setRules(data.rules || []);
+    const [upcomingPage, pastPage] = (await Promise.all([
+      upcomingResponse.json(),
+      pastResponse.json(),
+    ])) as [AdminCalendarPage, AdminCalendarPage];
+    setBookings([...(upcomingPage.bookings || []), ...(pastPage.bookings || [])]);
+    setRules(upcomingPage.rules || []);
+    setUpcomingCursor(upcomingPage.nextCursor || null);
+    setPastCursor(pastPage.nextCursor || null);
+    setUpcomingTotal(upcomingPage.total || 0);
+    setPastTotal(pastPage.total || 0);
+  }
+
+  async function loadMoreBookings(scope: "upcoming" | "past") {
+    const cursor = scope === "upcoming" ? upcomingCursor : pastCursor;
+    if (!cursor || calendarLoadingMore) {
+      return;
+    }
+    setCalendarLoadingMore(scope);
+    try {
+      const response = await fetch(
+        `/api/admin/calendar?scope=${scope}&limit=${scope === "upcoming" ? 30 : 20}&cursor=${encodeURIComponent(cursor)}`,
+        { cache: "no-store" }
+      );
+      if (!response.ok) {
+        if (response.status === 401) {
+          setAuthenticated(false);
+        }
+        return;
+      }
+      const page = (await response.json()) as AdminCalendarPage;
+      setBookings((current) => {
+        const byId = new Map(current.map((booking) => [booking.id, booking]));
+        for (const booking of page.bookings || []) {
+          byId.set(booking.id, booking);
+        }
+        return Array.from(byId.values());
+      });
+      if (scope === "upcoming") {
+        setUpcomingCursor(page.nextCursor || null);
+        setUpcomingTotal(page.total || 0);
+      } else {
+        setPastCursor(page.nextCursor || null);
+        setPastTotal(page.total || 0);
+      }
+    } finally {
+      setCalendarLoadingMore(null);
+    }
   }
 
   useEffect(() => {
@@ -512,7 +571,7 @@ export function AdminDashboard() {
         {booking.attachments.length ? (
           <div className="attachment-list">
             {booking.attachments.map((attachment) => (
-              <a className="attachment-link" href={buildAttachmentDataUrl(attachment)} download={attachment.fileName} key={attachment.id}>
+              <a className="attachment-link" href={buildAttachmentDownloadUrl(booking.id, attachment.id)} key={attachment.id}>
                 <FileText size={14} />
                 下載附件：{attachment.fileName}
               </a>
@@ -522,6 +581,7 @@ export function AdminDashboard() {
         {editingBookingId === booking.id && editForm ? (
           <BookingEditFields
             attachmentError={editAttachmentError}
+            bookingId={booking.id}
             fileInputKey={editFileInputKey}
             form={editForm}
             saving={editSaving}
@@ -623,7 +683,7 @@ export function AdminDashboard() {
               <h2 id="admin-calendar-heading">預約列表</h2>
               <p className="muted">目前與未來預約會優先顯示，過去預約收在歷史區塊。</p>
             </div>
-            <span className="pill">{activeBookings.length} 目前 / {pastBookings.length} 歷史</span>
+            <span className="pill">{upcomingTotal} 目前 / {pastTotal} 歷史</span>
           </div>
           <div className="booking-list">
             {activeBookings.length ? (
@@ -631,15 +691,25 @@ export function AdminDashboard() {
                 <div className="booking-section-head">
                   <div>
                     <span className="section-kicker">目前與未來</span>
-                    <strong>{activeBookings.length} 筆</strong>
+                    <strong>{upcomingTotal} 筆</strong>
                   </div>
                 </div>
                 {activeBookings.map((booking) => renderBookingCard(booking))}
+                {upcomingCursor ? (
+                  <button
+                    className="ghost-button compact-button booking-load-more"
+                    disabled={calendarLoadingMore === "upcoming"}
+                    type="button"
+                    onClick={() => void loadMoreBookings("upcoming")}
+                  >
+                    {calendarLoadingMore === "upcoming" ? "載入中..." : "載入更多目前預約"}
+                  </button>
+                ) : null}
               </section>
             ) : (
               <div className="empty-state">目前沒有進行中或未來預約</div>
             )}
-            {pastBookings.length ? (
+            {pastTotal ? (
               <section className={`booking-history ${pastBookingsExpanded ? "expanded" : ""}`} aria-label="歷史預約">
                 <button
                   aria-expanded={pastBookingsExpanded}
@@ -649,13 +719,23 @@ export function AdminDashboard() {
                 >
                   <div>
                     <span className="section-kicker">歷史預約</span>
-                    <strong>{pastBookings.length} 筆過去預約</strong>
+                    <strong>{pastTotal} 筆過去預約</strong>
                   </div>
                   <ChevronDown className="history-toggle-icon" size={18} />
                 </button>
                 {pastBookingsExpanded ? (
                   <div className="booking-history-list">
                     {pastBookings.map((booking) => renderBookingCard(booking, { past: true }))}
+                    {pastCursor ? (
+                      <button
+                        className="ghost-button compact-button booking-load-more"
+                        disabled={calendarLoadingMore === "past"}
+                        type="button"
+                        onClick={() => void loadMoreBookings("past")}
+                      >
+                        {calendarLoadingMore === "past" ? "載入中..." : "載入更多歷史預約"}
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </section>
@@ -807,6 +887,7 @@ export function AdminDashboard() {
 
 function BookingEditFields({
   attachmentError,
+  bookingId,
   fileInputKey,
   form,
   saving,
@@ -819,6 +900,7 @@ function BookingEditFields({
   onStartChange,
 }: {
   attachmentError: string | null;
+  bookingId: string;
   fileInputKey: number;
   form: BookingEditFormState;
   saving: boolean;
@@ -915,7 +997,7 @@ function BookingEditFields({
               <div className="selected-attachment-row" key={attachment.id}>
                 <span>
                   <FileText size={15} />
-                  <a href={buildAttachmentDataUrl(attachment)} download={attachment.fileName}>
+                  <a href={buildAttachmentDownloadUrl(bookingId, attachment.id)}>
                     {attachment.fileName}
                   </a>
                 </span>
@@ -1241,8 +1323,8 @@ function formatSourceLabel(source: Booking["source"]): string {
   return labels[source] || source;
 }
 
-function buildAttachmentDataUrl(attachment: Pick<BookingAttachment, "mimeType" | "dataBase64">): string {
-  return `data:${attachment.mimeType || "application/octet-stream"};base64,${attachment.dataBase64 || ""}`;
+function buildAttachmentDownloadUrl(bookingId: string, attachmentId: string): string {
+  return `/api/admin/bookings/${encodeURIComponent(bookingId)}/attachments/${encodeURIComponent(attachmentId)}`;
 }
 
 function minutesFromTime(value: string): number {

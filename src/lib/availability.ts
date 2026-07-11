@@ -104,7 +104,11 @@ function findOverlappingBooking(bookings: Booking[], startAtUtc: string, endAtUt
 export function findMatchingSlot(slots: PublicSlot[], startAtUtc: string, endAtUtc: string): PublicSlot | null {
   return (
     slots.find((slot) => slot.startAtUtc === startAtUtc && slot.endAtUtc === endAtUtc) ||
-    slots.find((slot) => Math.abs(new Date(slot.startAtUtc).getTime() - new Date(startAtUtc).getTime()) < 1000) ||
+    slots.find(
+      (slot) =>
+        Math.abs(new Date(slot.startAtUtc).getTime() - new Date(startAtUtc).getTime()) < 1000 &&
+        Math.abs(new Date(slot.endAtUtc).getTime() - new Date(endAtUtc).getTime()) < 1000
+    ) ||
     null
   );
 }

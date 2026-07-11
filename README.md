@@ -12,6 +12,9 @@ RWD online booking system with public 60-minute slots, Zoom invitation parsing, 
 - Admin login for full booking details, Zoom links, deletion, and availability rules.
 - Public calendar shows available and anonymous blocked slots without exposing booking details.
 - New booking email plus admin-only app push notifications.
+- Durable notification outbox with automatic retry after app restarts or temporary provider failures.
+- Atomic multi-slot booking: every selected time is created together or none are created.
+- Paginated admin booking history with authenticated, on-demand attachment downloads.
 - 24-hour and 1-hour reminder push support; 24-hour reminders also send email.
 - Eastern Time display with UTC storage.
 - Railway-ready Postgres migration script.
@@ -116,10 +119,10 @@ npm run reminders:24h
 4. Add these variables to the reminder service:
    - `APP_URL=https://your-railway-domain.up.railway.app`
    - `CRON_SECRET` with the same value as the web service.
-5. In the reminder service Settings, set Cron Schedule to run hourly:
+5. In the reminder service Settings, set Cron Schedule to run every 5 minutes. This processes notification retries promptly and also checks 24-hour/1-hour reminders:
 
 ```cron
-0 * * * *
+*/5 * * * *
 ```
 
-Railway cron schedules use UTC. The reminder job handles both 24-hour and 1-hour reminders. It is idempotent: once a booking reminder is sent, the matching sent timestamp is saved so later cron runs do not resend it.
+Railway cron schedules use UTC. The job drains durable booking-notification work and handles both 24-hour and 1-hour reminders. Booking-created jobs use a unique outbox key and retry with backoff; reminder sent timestamps prevent later cron runs from resending the same reminder.

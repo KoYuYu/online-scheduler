@@ -165,6 +165,7 @@ const publicCopy = {
     bookingBatchSuccess: (count: number) => `已確認 ${count} 個預約，這些時間已保留。`,
     pickAtLeastOne: "請先選擇至少一個可預約時段。",
     selectedBlocked: "已選時段中有時間剛剛被預約，請重新選擇。",
+    selectedOverlap: "這個時段與已選時間重疊，請選擇另一個時段。",
     nameRequired: "請填寫姓名。",
     bookingFailed: "預約失敗。",
     partialBookingFailed: (count: number, detail: string) => `已建立 ${count} 個預約，但後續預約失敗：${detail}`,
@@ -282,6 +283,7 @@ const publicCopy = {
     bookingBatchSuccess: (count: number) => `${count} bookings confirmed. These times are now reserved.`,
     pickAtLeastOne: "Select at least one available time first.",
     selectedBlocked: "One of the selected times was just booked. Please choose again.",
+    selectedOverlap: "This time overlaps another selected time. Please choose a different slot.",
     nameRequired: "Please enter your name.",
     bookingFailed: "Booking failed.",
     partialBookingFailed: (count: number, detail: string) => `${count} booking${count > 1 ? "s" : ""} created, but the next booking failed: ${detail}`,
@@ -541,6 +543,11 @@ export function PublicScheduler() {
     setMode("calendar");
     setExpandedDayKey(slot.dateKey);
     setMessage(null);
+    const isSelected = selectedSlots.some((selected) => selected.id === slot.id);
+    if (!isSelected && selectedSlots.some((selected) => rangesOverlap(selected, slot))) {
+      setMessage({ type: "error", text: copy.selectedOverlap });
+      return;
+    }
     setSelectedSlots((current) =>
       current.some((selected) => selected.id === slot.id)
         ? current.filter((selected) => selected.id !== slot.id)
@@ -587,45 +594,38 @@ export function PublicScheduler() {
     const attachmentPayload = buildAttachmentPayload(attachments);
     const zoomUrl = zoomJoinUrl.trim() || null;
     const manualTitle = bookingTitle.trim();
-    let createdCount = 0;
-    const createdBookings: ConfirmedBookingSummary[] = [];
-
     try {
-      for (const slot of selectedSlots) {
-        const response = await fetch("/api/bookings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source: "manual",
-            title: manualTitle,
-            startAtUtc: slot.startAtUtc,
-            endAtUtc: slot.endAtUtc,
-            bookerName,
-            zoomJoinUrl: zoomUrl,
-            notes,
-            ...attachmentPayload,
-          }),
-        });
-        const data = (await response.json()) as {
-          booking?: { id?: string; title?: string; startAtUtc?: string; endAtUtc?: string };
-          error?: string;
-          suggestions?: PublicSlot[];
-        };
-        if (!response.ok) {
-          setSuggestions(data.suggestions || []);
-          throw new Error(data.error || copy.bookingFailed);
-        }
-        createdCount += 1;
-        createdBookings.push({
-          id: data.booking?.id,
+      const response = await fetch("/api/bookings/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           source: "manual",
-          title: data.booking?.title || manualTitle,
-          startAtUtc: data.booking?.startAtUtc || slot.startAtUtc,
-          endAtUtc: data.booking?.endAtUtc || slot.endAtUtc,
+          title: manualTitle,
+          bookerName,
           zoomJoinUrl: zoomUrl,
           notes,
-        });
+          slots: selectedSlots.map((slot) => ({ startAtUtc: slot.startAtUtc, endAtUtc: slot.endAtUtc })),
+          ...attachmentPayload,
+        }),
+      });
+      const data = (await response.json()) as {
+        bookings?: Array<{ id?: string; title?: string; startAtUtc?: string; endAtUtc?: string }>;
+        error?: string;
+        suggestions?: PublicSlot[];
+      };
+      if (!response.ok) {
+        setSuggestions(data.suggestions || []);
+        throw new Error(data.error || copy.bookingFailed);
       }
+      const createdBookings: ConfirmedBookingSummary[] = (data.bookings || []).map((booking, index) => ({
+        id: booking.id,
+        source: "manual",
+        title: booking.title || manualTitle,
+        startAtUtc: booking.startAtUtc || selectedSlots[index].startAtUtc,
+        endAtUtc: booking.endAtUtc || selectedSlots[index].endAtUtc,
+        zoomJoinUrl: zoomUrl,
+        notes,
+      }));
 
       setMessage({
         type: "success",
@@ -642,10 +642,7 @@ export function PublicScheduler() {
       void loadSlots(weekOffset);
     } catch (error) {
       const detail = translateServerMessage(error instanceof Error ? error.message : copy.bookingFailed, language);
-      setMessage({
-        type: "error",
-        text: createdCount ? copy.partialBookingFailed(createdCount, detail) : detail,
-      });
+      setMessage({ type: "error", text: detail });
       void loadSlots(weekOffset);
     } finally {
       setLoading(false);
@@ -1242,6 +1239,11 @@ function formatDateKeyLong(ymd: string, language: Language): string {
 
 function compareSlotsByStart(left: PublicSlot, right: PublicSlot): number {
   return left.startAtUtc.localeCompare(right.startAtUtc);
+}
+
+function rangesOverlap(left: PublicSlot, right: PublicSlot): boolean {
+  return new Date(left.startAtUtc).getTime() < new Date(right.endAtUtc).getTime()
+    && new Date(left.endAtUtc).getTime() > new Date(right.startAtUtc).getTime();
 }
 
 function formatMobileSelectedSummary(slots: PublicSlot[], language: Language): string {

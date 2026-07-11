@@ -1,8 +1,6 @@
 import { resolve4 } from "node:dns/promises";
 import { isIP } from "node:net";
 import nodemailer from "nodemailer";
-import { recordNotificationLog } from "@/lib/notification-log";
-import { getStore } from "@/lib/storage";
 import type { Booking } from "@/lib/types";
 import { formatEtDateTimeRangeLabel } from "@/lib/time";
 
@@ -36,9 +34,29 @@ function getBookingNotificationText(booking: Booking, kind: NotificationKind): s
 function getAttachments(booking: Booking) {
   return booking.attachments.map((attachment) => ({
     filename: attachment.fileName,
-    content: attachment.dataBase64,
+    content: attachment.dataBase64 || "",
     contentType: attachment.mimeType || "application/octet-stream",
   }));
+}
+
+function getBatchSubject(bookings: Booking[]): string {
+  return bookings.length === 1 ? getSubject(bookings[0], "created") : `新增 ${bookings.length} 個預約：${bookings[0]?.title || "預約會議"}`;
+}
+
+function getBatchNotificationText(bookings: Booking[]): string {
+  if (bookings.length === 1) {
+    return getBookingNotificationText(bookings[0], "created");
+  }
+  const first = bookings[0];
+  return [
+    `已新增 ${bookings.length} 個預約。`,
+    `主題：${first.title}`,
+    `預約者：${first.bookerName || "未提供"}`,
+    `Zoom: ${first.zoomJoinUrl || ""}`,
+    `備註：${first.notes || ""}`,
+    "",
+    ...bookings.map((booking, index) => `${index + 1}. ${formatEtDateTimeRangeLabel(booking.startAtUtc, booking.endAtUtc)}`),
+  ].join("\n");
 }
 
 async function sendWithResend(booking: Booking, apiKey: string, to: string, kind: NotificationKind): Promise<NotificationResult> {
@@ -143,49 +161,75 @@ export async function sendBookingNotification(booking: Booking): Promise<Notific
   return sendBookingEmail(booking, "created");
 }
 
-export async function sendBookingReminder(booking: Booking): Promise<NotificationResult> {
-  return sendBookingEmail(booking, "reminder24h");
+export async function sendBookingBatchNotification(bookings: Booking[]): Promise<NotificationResult> {
+  if (!bookings.length) {
+    return { sent: false, reason: "booking_not_found" };
+  }
+  if (bookings.length === 1) {
+    return sendBookingNotification(bookings[0]);
+  }
+
+  const to = process.env.NOTIFY_TO_EMAIL || "jasonko12033@gmail.com";
+  const resendApiKey = process.env.RESEND_API_KEY;
+  const attachments = getAttachments(bookings[0]);
+  if (resendApiKey) {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL || "Online Scheduler <onboarding@resend.dev>",
+        to: [to],
+        subject: getBatchSubject(bookings),
+        text: getBatchNotificationText(bookings),
+        attachments: attachments.length
+          ? attachments.map((attachment) => ({ filename: attachment.filename, content: attachment.content }))
+          : undefined,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500);
+      throw new Error(`Resend API ${response.status}: ${detail}`);
+    }
+    return { sent: true };
+  }
+
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  if (!host || !user || !pass) {
+    return { sent: false, reason: "smtp_not_configured" };
+  }
+  const connectionHost = await resolveSmtpConnectionHost(host);
+  const transporter = nodemailer.createTransport({
+    host: connectionHost,
+    port: Number(process.env.SMTP_PORT || 465),
+    secure: process.env.SMTP_SECURE !== "false",
+    auth: { user, pass },
+    connectionTimeout: 8_000,
+    greetingTimeout: 8_000,
+    socketTimeout: 20_000,
+    tls: connectionHost === host ? undefined : { servername: host },
+  });
+  await transporter.sendMail({
+    to,
+    from: process.env.SMTP_FROM_EMAIL || user,
+    subject: getBatchSubject(bookings),
+    text: getBatchNotificationText(bookings),
+    attachments: attachments.length
+      ? attachments.map((attachment) => ({
+          filename: attachment.filename,
+          content: Buffer.from(attachment.content, "base64"),
+          contentType: attachment.contentType,
+        }))
+      : undefined,
+  });
+  return { sent: true };
 }
 
-export function queueBookingNotification(booking: Booking): void {
-  const store = getStore();
-  void sendBookingNotification(booking)
-    .then(async (result) => {
-      if (result.sent) {
-        await recordNotificationLog(store, {
-          bookingId: booking.id,
-          kind: "booking_created",
-          channel: "email",
-          status: "sent",
-          detail: "email_sent",
-        });
-        console.log("預約通知信已送出。", { bookingId: booking.id });
-        return;
-      }
-
-      await recordNotificationLog(store, {
-        bookingId: booking.id,
-        kind: "booking_created",
-        channel: "email",
-        status: "skipped",
-        detail: result.reason || "not_sent",
-      });
-      console.warn("預約通知信未寄送。", {
-        bookingId: booking.id,
-        reason: result.reason || "unknown",
-      });
-    })
-    .catch(async (error: unknown) => {
-      await recordNotificationLog(store, {
-        bookingId: booking.id,
-        kind: "booking_created",
-        channel: "email",
-        status: "failed",
-        detail: error instanceof Error ? error.message : String(error),
-      });
-      console.error("預約已建立，但通知信寄送失敗。", {
-        bookingId: booking.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+export async function sendBookingReminder(booking: Booking): Promise<NotificationResult> {
+  return sendBookingEmail(booking, "reminder24h");
 }

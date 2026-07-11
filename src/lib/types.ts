@@ -4,7 +4,7 @@ export type BookingAttachment = {
   id: string;
   fileName: string;
   mimeType: string;
-  dataBase64: string;
+  dataBase64?: string;
   createdAt?: string;
 };
 
@@ -54,6 +54,48 @@ export type NotificationLogInput = {
   channel: NotificationChannel;
   status: NotificationStatus;
   detail?: string | null;
+};
+
+export type NotificationJobKind = "booking_created_email" | "booking_created_push";
+export type NotificationJobStatus = "pending" | "processing" | "sent" | "failed";
+
+export type NotificationJob = {
+  id: string;
+  dedupeKey: string;
+  kind: NotificationJobKind;
+  bookingIds: string[];
+  status: NotificationJobStatus;
+  attempts: number;
+  availableAt: string;
+  lockedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BookingCreateOptions = {
+  notificationChannels?: NotificationChannel[];
+  notificationBatchKey?: string;
+};
+
+export type BookingPageScope = "upcoming" | "past";
+
+export type BookingPageCursor = {
+  startAtUtc: string;
+  id: string;
+};
+
+export type BookingPageOptions = {
+  scope: BookingPageScope;
+  now: string;
+  limit: number;
+  cursor?: BookingPageCursor | null;
+};
+
+export type BookingPage = {
+  bookings: Booking[];
+  nextCursor: BookingPageCursor | null;
+  total: number;
 };
 
 export type Booking = {

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { processPendingNotificationJobs } from "@/lib/notification-jobs";
 import { sendDueBookingReminders } from "@/lib/reminders";
 import { getStore } from "@/lib/storage";
 
@@ -29,13 +30,20 @@ async function handleReminderCron(request: Request) {
     return NextResponse.json({ error: authorization.error }, { status: authorization.status });
   }
 
-  const result = await sendDueBookingReminders(getStore());
+  const notificationJobs = await processPendingNotificationJobs(20);
+  const reminders = await sendDueBookingReminders(getStore());
 
-  if (result.failed.length) {
-    console.error("預約提醒有寄送失敗。", { failed: result.failed });
+  if (notificationJobs.failed.length || reminders.failed.length) {
+    console.error("通知或預約提醒有寄送失敗。", {
+      notificationJobs: notificationJobs.failed,
+      reminders: reminders.failed,
+    });
   }
 
-  return NextResponse.json(result, { status: result.failed.length ? 500 : 200 });
+  return NextResponse.json(
+    { notificationJobs, reminders },
+    { status: notificationJobs.failed.length || reminders.failed.length ? 500 : 200 }
+  );
 }
 
 export async function GET(request: Request) {

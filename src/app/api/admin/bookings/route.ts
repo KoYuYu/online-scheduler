@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminSession } from "@/lib/auth";
 import { attachmentErrorMessage, sanitizeAttachments } from "@/lib/attachments";
-import { queueBookingCreatedPushAndMarkCoveredReminders } from "@/lib/reminders";
+import { queueNotificationJobProcessing } from "@/lib/notification-jobs";
 import { getStore } from "@/lib/storage";
 import type { BookingInput } from "@/lib/types";
 
@@ -31,8 +31,8 @@ export async function POST(request: NextRequest) {
       passcode: body.passcode || null,
       rawInviteText: body.rawInviteText || null,
       attachments,
-    });
-    queueBookingCreatedPushAndMarkCoveredReminders(booking);
+    }, { notificationChannels: ["push"] });
+    queueNotificationJobProcessing();
     return NextResponse.json({ booking });
   } catch (error) {
     const attachmentMessage = attachmentErrorMessage(error);
